@@ -7,6 +7,7 @@ import { normalizeCarnetCorrespondanceResponse } from "../../src/ecoledirecte/ap
 import { normalizeEmploiDuTempsResponse } from "../../src/ecoledirecte/api/emploiDuTemps.js";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
 import { normalizeSessionsRdvResponse } from "../../src/ecoledirecte/api/sessionsRdv.js";
+import { normalizeStudentProfileResponse } from "../../src/ecoledirecte/api/studentProfile.js";
 import { normalizeVieDeLaClasseResponse } from "../../src/ecoledirecte/api/vieDeLaClasse.js";
 import { normalizeVieScolaireResponse } from "../../src/ecoledirecte/api/vieScolaire.js";
 
@@ -138,6 +139,54 @@ describe("student data normalizers", () => {
         lessonId: 4905,
         html: "<p>Contenu de séance</p>",
       },
+    });
+  });
+
+  it("normalizes a student profile payload", () => {
+    const raw: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "",
+      message: "",
+      data: {
+        id: 1154,
+        nom: "BOIVIN",
+        particule: "",
+        prenom: "Antonin",
+        sexe: "M",
+        regime: "Demi-pensionnaire",
+        dateDeNaissance: "2011-11-06",
+        email: "anne.roudier@free.fr",
+        mobile: "0671561833",
+        isPrimaire: false,
+        isPP: false,
+        photo: "//doc1.ecoledirecte.com/PhotoEleves/demo.jpg",
+        classeId: 18,
+        classeLibelle: "3B",
+        classeEstNote: 1,
+        idEtablissement: 1,
+      },
+    };
+
+    const result = normalizeStudentProfileResponse(raw);
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({
+      id: 1154,
+      firstName: "Antonin",
+      lastName: "BOIVIN",
+      fullName: "Antonin BOIVIN",
+      gender: "M",
+      boarderStatus: "Demi-pensionnaire",
+      birthDate: "2011-11-06",
+      email: "anne.roudier@free.fr",
+      mobile: "0671561833",
+      primarySchool: false,
+      principalProfessor: false,
+      photoUrl: "https://doc1.ecoledirecte.com/PhotoEleves/demo.jpg",
+      classId: 18,
+      classLabel: "3B",
+      classIsGraded: true,
+      establishmentId: 1,
     });
   });
 

@@ -48,11 +48,13 @@ describe("parseSessionFile", () => {
         accounts: [
           {
             id: 828,
+            idLogin: 4229759,
             typeCompte: "1",
             nom: "ROUDIER-BOIVIN",
             prenom: "Anne",
             nomEtablissement: "Les Marronniers",
             main: true,
+            current: true,
             profile: {
               eleves: [
                 {
@@ -74,10 +76,12 @@ describe("parseSessionFile", () => {
     expect(result.accounts).toEqual([
       {
         id: 828,
+        idLogin: 4229759,
         type: "1",
         name: "Anne ROUDIER-BOIVIN",
         establishment: "Les Marronniers",
         main: true,
+        current: true,
         students: [
           {
             id: 1154,

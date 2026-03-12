@@ -11,6 +11,7 @@ import type {
   StudentEmploiDuTempsResult,
   StudentMessagesResult,
   StudentNotesResult,
+  StudentProfileResult,
   StudentSessionsRdvResult,
   StudentVieScolaireResult,
 } from "../ecoledirecte/data/service.js";
@@ -67,6 +68,20 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "get_student_notes tool invoked");
       const result = await data.getStudentNotes(args);
       return resultForStudentNotes(result);
+    },
+  );
+
+  server.tool(
+    "get_student_profile",
+    "Get identity and class metadata for an authenticated student account",
+    {
+      ...studentQuerySchema,
+      schoolYear: z.string().optional(),
+    },
+    async (args) => {
+      log("info", "get_student_profile tool invoked");
+      const result = await data.getStudentProfile(args);
+      return resultForStudentProfile(result);
     },
   );
 
@@ -175,6 +190,13 @@ function resultForStudentNotes(result: Awaited<ReturnType<EdDataService["getStud
   return successResult(summary, result.data);
 }
 
+function resultForStudentProfile(result: Awaited<ReturnType<EdDataService["getStudentProfile"]>>) {
+  if (!result.ok) return failureResult(result);
+  const classLabel = result.data.classLabel ?? result.data.student.className ?? "unknown class";
+  const summary = `Profile for ${result.data.fullName} in ${classLabel}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForStudentCahierDeTextes(
   result: Awaited<ReturnType<EdDataService["getStudentCahierDeTextes"]>>,
 ) {
@@ -245,6 +267,7 @@ function successResult(
     | StudentEmploiDuTempsResult
     | StudentMessagesResult
     | StudentNotesResult
+    | StudentProfileResult
     | StudentSessionsRdvResult
     | StudentVieScolaireResult,
 ) {

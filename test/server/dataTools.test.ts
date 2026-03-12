@@ -57,6 +57,29 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         expired: false,
       },
     }),
+    getStudentProfile: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "student",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        student: { id: 1154, name: "Antonin Boivin", classId: 18, className: "3B", classCode: "3B", accountId: 828, accountName: "Anne Roudier-Boivin" },
+        id: 1154,
+        firstName: "Antonin",
+        lastName: "BOIVIN",
+        fullName: "Antonin BOIVIN",
+        gender: "M",
+        boarderStatus: "Demi-pensionnaire",
+        birthDate: "2011-11-06",
+        email: "anne.roudier@free.fr",
+        mobile: "0671561833",
+        primarySchool: false,
+        principalProfessor: false,
+        classId: 18,
+        classLabel: "3B",
+        classIsGraded: true,
+        establishmentId: 1,
+      },
+    }),
     getStudentCahierDeTextes: vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -199,6 +222,7 @@ describe("MCP data tools", () => {
     const server = stubServer();
     registerDataTools(server as any, stubData() as any);
 
+    expect(server.handlers.has("get_student_profile")).toBe(true);
     expect(server.handlers.has("get_student_cahier_de_textes")).toBe(true);
     expect(server.handlers.has("get_student_cahier_de_textes_day")).toBe(true);
     expect(server.handlers.has("get_student_vie_scolaire")).toBe(true);
@@ -218,6 +242,18 @@ describe("MCP data tools", () => {
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("homework assignments");
     expect(data.getStudentCahierDeTextes).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
+  });
+
+  it("registers get_student_profile and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_student_profile")!({ studentId: 1154 });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Profile for Antonin BOIVIN in 3B.");
+    expect(data.getStudentProfile).toHaveBeenCalledWith({ studentId: 1154 });
   });
 
   it("registers get_student_cahier_de_textes_day and formats the summary", async () => {

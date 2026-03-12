@@ -4,6 +4,7 @@ import {
   familyMessagesUrl,
   loginUrl,
   probeUrl,
+  renewTokenUrl,
   classVieDeLaClasseUrl,
   studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
@@ -11,6 +12,7 @@ import {
   studentEmploiDuTempsUrl,
   studentMessagesUrl,
   studentNotesUrl,
+  studentProfileUrl,
   studentSessionsRdvUrl,
   studentVieScolaireUrl,
   API_BASE,
@@ -44,6 +46,13 @@ describe("probeUrl", () => {
   it("respects custom version", () => {
     const url = probeUrl({ version: "5.0.0" });
     expect(url).toBe(`${API_BASE}/${API_VERSION}/rdt/sondages.awp?verbe=get&v=5.0.0`);
+  });
+});
+
+describe("renewTokenUrl", () => {
+  it("returns the default renewtoken URL", () => {
+    const url = renewTokenUrl();
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${DEFAULT_APP_VERSION}`);
   });
 });
 
@@ -89,6 +98,15 @@ describe("studentNotesUrl", () => {
     const url = studentNotesUrl(1154);
     expect(url).toBe(
       `${API_BASE}/${API_VERSION}/eleves/1154/notes.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentProfileUrl", () => {
+  it("returns the student profile endpoint", () => {
+    const url = studentProfileUrl(1154, { version: "5.0.0" });
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/eleves/1154.awp?verbe=get&v=5.0.0`,
     );
   });
 });

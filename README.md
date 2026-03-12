@@ -9,9 +9,11 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Secure identity question** — handles the non-TOTP double-auth flow that asks the user to answer a verification question, then replays the login with the returned challenge proof.
 - **Session import** — import an existing session from a browser-export JSON file, validated against the live API.
 - **Session validation** — imported and restored sessions are probed through `rdt/sondages.awp` before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
+- **Multi-family context switching** — when a session includes browser account metadata, data tools automatically renew the live token context with `renewtoken.awp` before requesting another family account.
 - **Family messagerie** — lists family-level messages through the authenticated `familles/{id}/messages.awp` route.
 - **Student messagerie** — lists student-level messages through the authenticated `eleves/{id}/messages.awp` route.
 - **Student notes** — returns period summaries and grade rows through the authenticated `eleves/{id}/notes.awp` route.
+- **Student profile** — returns student identity and class metadata through the authenticated `eleves/{id}.awp` route.
 - **Cahier de textes** — returns homework grouped by day through the authenticated `Eleves/{id}/cahierdetexte.awp` route.
 - **Cahier de textes detail** — returns decoded homework content and lesson content for a selected day through the authenticated `Eleves/{id}/cahierdetexte/{date}.awp` route.
 - **Vie scolaire** — returns absences, dispenses, sanctions, and settings through the authenticated `eleves/{id}/viescolaire.awp` route.
@@ -58,6 +60,7 @@ Configure your MCP client to launch this server via stdio:
 | `list_family_messages` | List family-level messages for the authenticated family account |
 | `list_student_messages` | List student-level messages for a selected student |
 | `get_student_notes` | Get student notes plus period averages for a selected student |
+| `get_student_profile` | Get identity and class metadata for a selected student |
 | `get_student_cahier_de_textes` | Get student homework grouped by day for a selected student |
 | `get_student_cahier_de_textes_day` | Get decoded homework content and lesson content for a selected student on a specific date |
 | `get_student_vie_scolaire` | Get student absences, dispenses, sanctions, and settings |
@@ -68,7 +71,7 @@ Configure your MCP client to launch this server via stdio:
 | `logout` | Clear the session (keeps saved credentials) |
 | `logout_full` | Clear both session and saved credentials |
 
-If multiple family accounts or students are available, pass `accountId` and/or `studentId`. The tool error payload lists the available choices when selection is ambiguous.
+If multiple family accounts or students are available, pass `accountId` and/or `studentId`. When the imported or authenticated session includes browser account metadata such as `idLogin` and `current`, the server automatically switches to the requested family context before calling the private API. The tool error payload lists the available choices when selection is ambiguous.
 
 ## Browser Session Export Format
 
@@ -89,7 +92,9 @@ To import an existing browser session, create a JSON file with this structure:
       "type": "1",
       "name": "Jane Doe",
       "establishment": "My School",
+      "idLogin": 4229759,
       "main": true,
+      "current": true,
       "students": [
         {
           "id": 1154,
@@ -106,7 +111,7 @@ To import an existing browser session, create a JSON file with this structure:
 }
 ```
 
-Then use the `import_session` tool with the file path.
+For multi-family accounts, prefer a browser-style export that preserves each account's `idLogin` and `current` fields so the server can reproduce the live `renewtoken.awp` account switch. Then use the `import_session` tool with the file path.
 
 ## Auth Flow (Reverse-Engineered)
 
@@ -131,11 +136,16 @@ Then use the `import_session` tool with the file path.
    - If the probe returns code `200`, the session is promoted to authenticated.
    - If the probe returns code `521` (expired), the persisted session is cleared and the server falls back to saved credentials if available.
 
+5. **Cross-family context switch:**
+  - When a request targets another family account, the browser renews the session with `POST /v3/renewtoken.awp?verbe=post&v=4.96.3` and `data={"idUser":<account.idLogin>,"uuid":""}`.
+  - The response rotates `X-Token`, `2FA-Token`, and cookies, and the server persists that updated authenticated context before retrying the data route.
+
 ## Data Routes (Reverse-Engineered)
 
 - **Family messages** → `POST /v3/familles/{familyId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
 - **Student messages** → `POST /v3/eleves/{studentId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
 - **Student notes** → `POST /v3/eleves/{studentId}/notes.awp?verbe=get&v=4.96.3`
+- **Student profile** → `POST /v3/eleves/{studentId}.awp?verbe=get&v=4.96.3` with `data={"anneeScolaire":""}`
 - **Student cahier de textes** → `POST /v3/Eleves/{studentId}/cahierdetexte.awp?verbe=get&v=4.96.3`
 - **Student cahier de textes day detail** → `POST /v3/Eleves/{studentId}/cahierdetexte/{date}.awp?verbe=get&v=4.96.3`
 - **Student vie scolaire** → `POST /v3/eleves/{studentId}/viescolaire.awp?verbe=get&v=4.96.3`
@@ -143,7 +153,7 @@ Then use the `import_session` tool with the file path.
 - **Student sessions RDV** → `POST /v3/E/{studentId}/sessionsRdv.awp?verbe=get&v=4.96.3`
 - **Class vie de la classe** → `POST /v3/Classes/{classId}/viedelaclasse.awp?verbe=get&v=4.96.3`
 - **Student emploi du temps** → `POST /v3/E/{studentId}/emploidutemps.awp?verbe=get&v=4.96.3`
-- All data routes above use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
+- Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
 
 ## Explicitly Out of Scope (v1)
 
@@ -176,6 +186,7 @@ src/
     │   ├── normalize.ts              # Auth/session response normalization
     │   ├── messages.ts               # Messaging response normalization
     │   ├── notes.ts                  # Notes response normalization
+    │   ├── studentProfile.ts         # Student profile normalization
     │   ├── cahierDeTextes.ts         # Homework response normalization
     │   ├── vieScolaire.ts            # School-life response normalization
     │   ├── carnetCorrespondance.ts   # Correspondence response normalization

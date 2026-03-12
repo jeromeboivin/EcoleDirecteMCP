@@ -133,10 +133,17 @@ function formatState(state: ReturnType<AuthService["getState"]>): string {
         .map((choice, index) => `${index + 1}. ${choice.label}`)
         .join(", ")}. Use submit_doubleauth with your choiceIndex.`;
     case "authenticated":
-      return `Authenticated. Accounts: ${state.accounts.map((a) => `${a.name} (${a.type})`).join(", ") || "none parsed"}`;
+      return `Authenticated${formatCurrentAccount(state.accounts)}. Accounts: ${state.accounts.map((account) => `${account.name} (${account.type})${account.current ? " [current]" : ""}`).join(", ") || "none parsed"}`;
     case "session-imported":
-      return "Session imported successfully. Token loaded.";
+      return `Session imported successfully. Token loaded${formatCurrentAccount(state.accounts ?? [])}.`;
     case "error":
       return `Error: ${state.message}${state.recoverable ? " (recoverable — you can retry)" : ""}`;
   }
+}
+
+function formatCurrentAccount(accounts: { name: string; establishment?: string; current?: boolean }[]): string {
+  const current = accounts.find((account) => account.current === true);
+  if (!current) return "";
+  const label = current.establishment ? `${current.name} / ${current.establishment}` : current.name;
+  return ` (current account: ${label})`;
 }

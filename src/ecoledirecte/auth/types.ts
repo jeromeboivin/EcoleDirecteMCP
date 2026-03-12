@@ -63,7 +63,9 @@ export interface AccountInfo {
   type: string;
   name: string;
   establishment?: string;
+  idLogin?: number;
   main?: boolean;
+  current?: boolean;
   students?: StudentInfo[];
 }
 

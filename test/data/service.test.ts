@@ -24,6 +24,19 @@ function makeAuth(state: AuthState, validatedState: AuthState = state) {
   return {
     getState: vi.fn().mockReturnValue(state),
     validateSession: vi.fn().mockResolvedValue(validatedState),
+    switchAccount: vi.fn().mockImplementation((accountId: number) => {
+      if (validatedState.status !== "authenticated") {
+        return Promise.resolve(validatedState);
+      }
+
+      return Promise.resolve({
+        ...validatedState,
+        accounts: validatedState.accounts.map((account) => ({
+          ...account,
+          current: account.id === accountId,
+        })),
+      } satisfies AuthState);
+    }),
   };
 }
 
@@ -33,17 +46,21 @@ const authenticatedState: AuthState = {
   accounts: [
     {
       id: 828,
+      idLogin: 4229759,
       type: "1",
       name: "Anne Roudier-Boivin",
       establishment: "Les Marronniers",
       main: true,
+      current: true,
       students: [{ id: 1154, name: "Antonin Boivin", classId: 18, className: "3B", classCode: "3B" }],
     },
     {
       id: 17405,
+      idLogin: 8955929,
       type: "1",
       name: "Anne Roudier-Boivin",
       establishment: "Institution Robin",
+      current: false,
       students: [{ id: 15902, name: "Jules Boivin", classId: 165, className: "Première 2", classCode: "12" }],
     },
   ],
@@ -93,6 +110,54 @@ const notesBody: RawApiResponse = {
         elementsProgramme: [],
       },
     ],
+  },
+};
+
+const studentProfileBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    id: 1154,
+    nom: "BOIVIN",
+    particule: "",
+    prenom: "Antonin",
+    sexe: "M",
+    regime: "Demi-pensionnaire",
+    dateDeNaissance: "2011-11-06",
+    email: "anne.roudier@free.fr",
+    mobile: "0671561833",
+    isPrimaire: false,
+    isPP: false,
+    photo: "//doc1.ecoledirecte.com/PhotoEleves/demo.jpg",
+    classeId: 18,
+    classeLibelle: "3B",
+    classeEstNote: 1,
+    idEtablissement: 1,
+  },
+};
+
+const secondStudentProfileBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    id: 15902,
+    nom: "BOIVIN",
+    particule: "",
+    prenom: "Jules",
+    sexe: "M",
+    regime: "Externe libre",
+    dateDeNaissance: "2009-04-10",
+    email: "anne.roudier@free.fr",
+    mobile: "0671561833",
+    isPrimaire: false,
+    isPP: false,
+    photo: "//doc1.ecoledirecte.com/PhotoEleves/jules.jpg",
+    classeId: 165,
+    classeLibelle: "Première 2",
+    classeEstNote: 1,
+    idEtablissement: 27,
   },
 };
 
@@ -299,6 +364,32 @@ describe("EdDataService", () => {
     );
   });
 
+  it("prefers the current family account over main when family selection is implicit", async () => {
+    const currentState: AuthState = {
+      ...authenticatedState,
+      accounts: authenticatedState.accounts.map((account) => ({
+        ...account,
+        current: account.id === 17405,
+      })),
+    };
+    const http = makeHttp([messagesBody]);
+    const auth = makeAuth(currentState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listFamilyMessages();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.family.id).toBe(17405);
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/familles/17405/messages.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(auth.switchAccount).toHaveBeenCalledWith(17405);
+  });
+
   it("returns an actionable error when the student selection is ambiguous", async () => {
     const auth: AuthState = {
       status: "authenticated",
@@ -334,6 +425,73 @@ describe("EdDataService", () => {
       expect(result.data.grades).toHaveLength(1);
       expect(result.data.student.id).toBe(1154);
     }
+  });
+
+  it("posts the expected schoolYear payload for student profile", async () => {
+    const http = makeHttp([studentProfileBody]);
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.getStudentProfile({ studentId: 1154 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.fullName).toBe("Antonin BOIVIN");
+      expect(result.data.classLabel).toBe("3B");
+      expect(result.data.photoUrl).toBe("https://doc1.ecoledirecte.com/PhotoEleves/demo.jpg");
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/eleves/1154.awp"),
+      { anneeScolaire: "" },
+      { includeGtk: false },
+    );
+  });
+
+  it("switches account context before requesting another family student", async () => {
+    const http = makeHttp([secondStudentProfileBody]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getStudentProfile({ studentId: 15902 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.student.id).toBe(15902);
+      expect(result.data.family.id).toBe(17405);
+      expect(result.data.fullName).toBe("Jules BOIVIN");
+    }
+    expect(auth.switchAccount).toHaveBeenCalledWith(17405);
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/eleves/15902.awp"),
+      { anneeScolaire: "" },
+      { includeGtk: false },
+    );
+  });
+
+  it("uses the current family's only student when student selection is implicit", async () => {
+    const currentState: AuthState = {
+      ...authenticatedState,
+      accounts: authenticatedState.accounts.map((account) => ({
+        ...account,
+        current: account.id === 17405,
+      })),
+    };
+    const http = makeHttp([notesBody]);
+    const auth = makeAuth(currentState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getStudentNotes();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.student.id).toBe(15902);
+      expect(result.data.family.id).toBe(17405);
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/eleves/15902/notes.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(auth.switchAccount).toHaveBeenCalledWith(17405);
   });
 
   it("retries once after validate_session when the API reports an invalid token", async () => {

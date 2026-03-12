@@ -29,6 +29,45 @@ function successBody(opts?: { accounts?: unknown[]; token?: string }): RawApiRes
   };
 }
 
+function switchableAccounts(): unknown[] {
+  return [
+    {
+      id: 828,
+      idLogin: 4229759,
+      typeCompte: "1",
+      nom: "ROUDIER-BOIVIN",
+      prenom: "Anne",
+      nomEtablissement: "Les Marronniers",
+      main: true,
+      current: true,
+      profile: {
+        eleves: [{ id: 1154, nom: "BOIVIN", prenom: "Antonin", classe: { id: 18, libelle: "3B", code: "3B" } }],
+      },
+    },
+    {
+      id: 17405,
+      idLogin: 8955929,
+      typeCompte: "1",
+      nom: "ROUDIER-BOIVIN",
+      prenom: "Anne",
+      nomEtablissement: "Institution Robin",
+      current: false,
+      profile: {
+        eleves: [{ id: 15902, nom: "BOIVIN", prenom: "Jules", classe: { id: 165, libelle: "Première 2", code: "12" } }],
+      },
+    },
+  ];
+}
+
+function renewTokenBody(accountId: number): RawApiResponse {
+  return {
+    code: ApiCode.OK,
+    token: "renew-body-token",
+    message: "",
+    data: { id: accountId },
+  };
+}
+
 function totpLoginBody(): RawApiResponse {
   return {
     code: ApiCode.AUTH_2FA,
@@ -437,6 +476,86 @@ describe("AuthService", () => {
         recoverable: true,
       });
       expect(svc.getState()).toEqual(result);
+    });
+  });
+
+  describe("switchAccount", () => {
+    it("renews the live token for a different family account", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: switchableAccounts() }), {
+          "X-Token": "login-token",
+          "2FA-Token": "twofa-login",
+        }),
+        mockResponse(renewTokenBody(17405), {
+          "X-Token": "renew-token",
+          "2FA-Token": "twofa-renew",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.switchAccount(17405);
+
+      expect(result.status).toBe("authenticated");
+      if (result.status === "authenticated") {
+        expect(result.token).toBe("renew-token");
+        expect(result.accounts).toEqual([
+          expect.objectContaining({ id: 828, current: false, idLogin: 4229759 }),
+          expect.objectContaining({ id: 17405, current: true, idLogin: 8955929 }),
+        ]);
+      }
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/v3/renewtoken.awp?verbe=post&v=4.96.3"),
+        { idUser: 8955929, uuid: "" },
+        { includeGtk: false },
+      );
+      expect(store.saveSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          token: "renew-token",
+          twoFaToken: "twofa-renew",
+          accounts: expect.arrayContaining([
+            expect.objectContaining({ id: 828, current: false }),
+            expect.objectContaining({ id: 17405, current: true }),
+          ]),
+        }),
+      );
+    });
+
+    it("returns an actionable error when idLogin metadata is missing", async () => {
+      const accounts = [
+        {
+          id: 828,
+          typeCompte: "1",
+          nom: "ROUDIER-BOIVIN",
+          prenom: "Anne",
+          main: true,
+          current: true,
+        },
+        {
+          id: 17405,
+          typeCompte: "1",
+          nom: "ROUDIER-BOIVIN",
+          prenom: "Anne",
+          current: false,
+        },
+      ];
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts }), { "X-Token": "login-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchAccount(17405);
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Account switching requires idLogin metadata for accountId 17405. Re-import a browser session that includes browser account metadata or authenticate again.",
+        recoverable: true,
+      });
     });
   });
 

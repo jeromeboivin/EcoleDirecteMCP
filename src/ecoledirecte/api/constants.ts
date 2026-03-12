@@ -48,6 +48,11 @@ export function studentNotesUrl(studentId: number, opts: { version?: string } = 
   return `${API_BASE}/${API_VERSION}/eleves/${studentId}/notes.awp?verbe=get&v=${v}`;
 }
 
+export function studentProfileUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/eleves/${studentId}.awp?verbe=get&v=${v}`;
+}
+
 export function studentCahierDeTextesUrl(studentId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${API_BASE}/${API_VERSION}/Eleves/${studentId}/cahierdetexte.awp?verbe=get&v=${v}`;
@@ -96,6 +101,11 @@ export function studentEmploiDuTempsUrl(studentId: number, opts: { version?: str
 export function probeUrl(opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${API_BASE}/${API_VERSION}/rdt/sondages.awp?verbe=get&v=${v}`;
+}
+
+export function renewTokenUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${v}`;
 }
 
 /** Headers the server exposes via CORS that we may need to capture. */

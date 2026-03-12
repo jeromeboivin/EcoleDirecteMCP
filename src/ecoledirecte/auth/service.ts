@@ -11,7 +11,7 @@
  */
 
 import { EdHttpClient } from "../http/client.js";
-import { doubleAuthUrl, loginUrl, probeUrl } from "../api/constants.js";
+import { doubleAuthUrl, loginUrl, probeUrl, renewTokenUrl } from "../api/constants.js";
 import { ApiCode, normalizeLoginResponse, normalizeProbeResponse, type RawApiResponse } from "../api/normalize.js";
 import type { AuthStore } from "./store.js";
 import type {
@@ -297,6 +297,82 @@ export class AuthService {
 
   // ── Session restore on startup ───────────────────────────────
 
+  async switchAccount(accountId: number): Promise<AuthState> {
+    const current = this.state.status === "session-imported" ? await this.validateSession() : this.state;
+    if (current.status !== "authenticated") {
+      return current;
+    }
+
+    const target = current.accounts.find((account) => account.id === accountId);
+    if (!target) {
+      this.state = {
+        status: "error",
+        message: `Unknown accountId ${accountId}.`,
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    if (current.accounts.length === 1 || target.current === true) {
+      return current;
+    }
+
+    if (target.idLogin === undefined) {
+      this.state = {
+        status: "error",
+        message: `Account switching requires idLogin metadata for accountId ${accountId}. Re-import a browser session that includes browser account metadata or authenticate again.`,
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    try {
+      const res = await this.http.postForm(
+        renewTokenUrl({ version: this.http.version }),
+        { idUser: target.idLogin, uuid: "" },
+        { includeGtk: false },
+      );
+      this.http.captureAuthHeaders(res);
+
+      const body = (await res.json()) as RawApiResponse;
+      if (body.code !== ApiCode.OK) {
+        this.state = {
+          status: "error",
+          message: body.message || `Unable to switch to accountId ${accountId}.`,
+          recoverable: true,
+        };
+        return this.state;
+      }
+
+      const resolvedAccountId = extractCurrentAccountId(body) ?? accountId;
+      if (resolvedAccountId !== accountId) {
+        this.state = {
+          status: "error",
+          message: `Requested accountId ${accountId}, but EcoleDirecte returned accountId ${resolvedAccountId}.`,
+          recoverable: true,
+        };
+        return this.state;
+      }
+
+      const token = this.getResolvedToken(body.token);
+      const accounts = markCurrentAccount(current.accounts, resolvedAccountId);
+      this.state = {
+        status: "authenticated",
+        token,
+        accounts,
+      };
+      await this.persistSession(token, accounts);
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Account switch failed: ${error instanceof Error ? error.message : String(error)}`,
+        recoverable: true,
+      };
+      return this.state;
+    }
+  }
+
   async restore(): Promise<AuthState> {
     const session = await this.store.loadSession();
     if (session) {
@@ -386,7 +462,7 @@ export class AuthService {
     creds: { identifiant: string; motdepasse: string },
   ): Promise<AuthState> {
     const token = this.getResolvedToken(body.token);
-    const accounts = extractAccounts(body);
+    const accounts = applyCurrentAccount(extractAccounts(body), extractCurrentAccountId(body));
     this.state = {
       status: "authenticated",
       token,
@@ -420,47 +496,78 @@ export class AuthService {
 function extractAccounts(body: RawApiResponse): AccountInfo[] {
   const data = body.data as Record<string, unknown> | undefined;
   if (!data) return [];
-  const accounts = data.accounts as
-    | Array<{
-        id: number;
-        typeCompte: string;
-        nom: string;
-        prenom: string;
-        nomEtablissement?: string;
-        main?: boolean;
-        profile?: {
-          eleves?: Array<{
-            id: number;
-            nom: string;
-            prenom: string;
-            nomEtablissement?: string;
-            classe?: { id?: number; libelle?: string; code?: string };
-          }>;
-        };
-      }>
-    | undefined;
+  const accounts = data.accounts as unknown[] | undefined;
   if (!Array.isArray(accounts)) return [];
-  return accounts.map((account) => {
-    const students = Array.isArray(account.profile?.eleves)
-      ? account.profile.eleves.map((student) => ({
-          id: student.id,
-          name: `${student.prenom} ${student.nom}`.trim(),
-          ...(student.classe?.id !== undefined ? { classId: student.classe.id } : {}),
-          ...(student.classe?.libelle ? { className: student.classe.libelle } : {}),
-          ...(student.classe?.code ? { classCode: student.classe.code } : {}),
-          ...(student.nomEtablissement ? { establishment: student.nomEtablissement } : {}),
-        }))
-      : undefined;
-
-    return {
-      id: account.id,
-      type: account.typeCompte,
-      name: `${account.prenom} ${account.nom}`.trim(),
-      ...(account.nomEtablissement ? { establishment: account.nomEtablissement } : {}),
-      ...(account.main !== undefined ? { main: account.main } : {}),
-      ...(students && students.length > 0 ? { students } : {}),
-    };
+  return accounts.flatMap((account) => {
+    const normalized = normalizeAccount(account);
+    return normalized ? [normalized] : [];
   });
+}
+
+function extractCurrentAccountId(body: RawApiResponse): number | undefined {
+  const data = body.data as Record<string, unknown> | undefined;
+  return typeof data?.id === "number" ? data.id : undefined;
+}
+
+function applyCurrentAccount(accounts: AccountInfo[], currentAccountId?: number): AccountInfo[] {
+  if (currentAccountId === undefined) return accounts;
+  return markCurrentAccount(accounts, currentAccountId);
+}
+
+function markCurrentAccount(accounts: AccountInfo[], currentAccountId: number): AccountInfo[] {
+  return accounts.map((account) => ({
+    ...account,
+    current: account.id === currentAccountId,
+  }));
+}
+
+function normalizeAccount(account: unknown): AccountInfo | undefined {
+  const candidate = account as Record<string, unknown>;
+  if (typeof candidate.id !== "number" || typeof candidate.typeCompte !== "string") {
+    return undefined;
+  }
+
+  const firstName = typeof candidate.prenom === "string" ? candidate.prenom.trim() : "";
+  const lastName = typeof candidate.nom === "string" ? candidate.nom.trim() : "";
+  const name = `${firstName} ${lastName}`.trim();
+  if (!name) return undefined;
+
+  const profile = candidate.profile as Record<string, unknown> | undefined;
+  const students = Array.isArray(profile?.eleves)
+    ? profile.eleves.flatMap((student) => normalizeStudent(student))
+    : undefined;
+
+  return {
+    id: candidate.id,
+    type: candidate.typeCompte,
+    name,
+    ...(typeof candidate.nomEtablissement === "string" ? { establishment: candidate.nomEtablissement } : {}),
+    ...(typeof candidate.idLogin === "number" ? { idLogin: candidate.idLogin } : {}),
+    ...(typeof candidate.main === "boolean" ? { main: candidate.main } : {}),
+    ...(typeof candidate.current === "boolean" ? { current: candidate.current } : {}),
+    ...(students && students.length > 0 ? { students } : {}),
+  };
+}
+
+function normalizeStudent(student: unknown) {
+  const candidate = student as Record<string, unknown>;
+  if (typeof candidate.id !== "number") return [];
+
+  const firstName = typeof candidate.prenom === "string" ? candidate.prenom.trim() : "";
+  const lastName = typeof candidate.nom === "string" ? candidate.nom.trim() : "";
+  const name = `${firstName} ${lastName}`.trim();
+  if (!name) return [];
+
+  const classe = candidate.classe as Record<string, unknown> | undefined;
+
+  return [{
+    id: candidate.id,
+    name,
+    ...(typeof classe?.id === "number" ? { classId: classe.id } : {}),
+    ...(typeof classe?.libelle === "string" ? { className: classe.libelle } : {}),
+    ...(typeof classe?.code === "string" ? { classCode: classe.code } : {}),
+    ...(typeof candidate.nomEtablissement === "string" ? { establishment: candidate.nomEtablissement } : {}),
+  }];
 }
 
 function decodeBase64String(value: unknown): string {

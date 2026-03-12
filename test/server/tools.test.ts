@@ -16,7 +16,8 @@ function stubServer(): { handlers: Map<string, ToolHandler>; tool: (...args: unk
   const handlers = new Map<string, ToolHandler>();
   return {
     handlers,
-    tool: (name: string, _desc: string, _schema: unknown, handler: ToolHandler) => {
+    tool: (...args: unknown[]) => {
+      const [name, _desc, _schema, handler] = args as [string, unknown, unknown, ToolHandler];
       handlers.set(name, handler);
     },
   };
@@ -54,7 +55,7 @@ describe("MCP tool responses", () => {
     const state: AuthState = {
       status: "authenticated",
       token: "tok",
-      accounts: [{ id: 1, type: "E", name: "Jane Doe" }],
+      accounts: [{ id: 1, type: "E", name: "Jane Doe", current: true, establishment: "Lycee" }],
     };
     const server = stubServer();
     const auth = stubAuth(state);
@@ -66,6 +67,7 @@ describe("MCP tool responses", () => {
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain("Authenticated");
     expect(result.content[0].text).toContain("Jane Doe");
+    expect(result.content[0].text).toContain("current account");
   });
 
   it("auth_status formats logged-out state", async () => {

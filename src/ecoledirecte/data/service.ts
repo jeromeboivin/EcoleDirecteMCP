@@ -7,6 +7,7 @@ import {
   studentEmploiDuTempsUrl,
   studentMessagesUrl,
   studentNotesUrl,
+  studentProfileUrl,
   studentSessionsRdvUrl,
   studentVieScolaireUrl,
   type MessageMailbox,
@@ -27,6 +28,10 @@ import {
 } from "../api/emploiDuTemps.js";
 import { normalizeMessagesResponse, type MessagesPayload } from "../api/messages.js";
 import { normalizeNotesResponse, type NotesPayload } from "../api/notes.js";
+import {
+  normalizeStudentProfileResponse,
+  type StudentProfilePayload,
+} from "../api/studentProfile.js";
 import {
   normalizeSessionsRdvResponse,
   type SessionsRdvPayload,
@@ -61,6 +66,12 @@ export interface StudentNotesQuery {
   accountId?: number;
   studentId?: number;
   periodCode?: string;
+}
+
+export interface StudentProfileQuery {
+  accountId?: number;
+  studentId?: number;
+  schoolYear?: string;
 }
 
 export interface StudentCahierDeTextesQuery {
@@ -106,6 +117,7 @@ export interface FamilyChoice {
   name: string;
   establishment?: string;
   main?: boolean;
+  current?: boolean;
 }
 
 export interface StudentChoice {
@@ -157,6 +169,13 @@ export interface StudentNotesResult extends NotesPayload {
   family: FamilyChoice;
   student: StudentChoice;
   selectedPeriodCode?: string;
+}
+
+export interface StudentProfileResult extends StudentProfilePayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+  selectedSchoolYear?: string;
 }
 
 export interface StudentCahierDeTextesResult extends CahierDeTextesPayload {
@@ -213,17 +232,7 @@ export class EdDataService {
   ) {}
 
   async listFamilyMessages(query: MessageQuery = {}): Promise<DataResult<FamilyMessagesResult>> {
-    const authState = await this.ensureReadyAuth();
-    if (!authState.ok) return authState;
-
-    if (authState.accounts.length === 0) {
-      return this.failure(
-        "Authenticated session has no account metadata. Re-authenticate or import a session that includes accounts.",
-        false,
-      );
-    }
-
-    const family = this.resolveFamily(authState.accounts, query.accountId);
+    const family = await this.ensureFamilySelection(query.accountId);
     if (!family.ok) return family;
 
     const mailbox = query.mailbox ?? "received";
@@ -267,10 +276,7 @@ export class EdDataService {
   async listStudentMessages(
     query: StudentMessageQuery = {},
   ): Promise<DataResult<StudentMessagesResult>> {
-    const authState = await this.ensureReadyAuth();
-    if (!authState.ok) return authState;
-
-    const selection = this.resolveStudent(authState.accounts, query.studentId, query.accountId);
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
     if (!selection.ok) return selection;
 
     const mailbox = query.mailbox ?? "received";
@@ -313,10 +319,7 @@ export class EdDataService {
   }
 
   async getStudentNotes(query: StudentNotesQuery = {}): Promise<DataResult<StudentNotesResult>> {
-    const authState = await this.ensureReadyAuth();
-    if (!authState.ok) return authState;
-
-    const selection = this.resolveStudent(authState.accounts, query.studentId, query.accountId);
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
     if (!selection.ok) return selection;
 
     const response = await this.fetchData(
@@ -359,6 +362,37 @@ export class EdDataService {
         expired: normalized.data.expired,
         ...(normalized.data.classProfile ? { classProfile: normalized.data.classProfile } : {}),
         ...(selectedPeriodCode ? { selectedPeriodCode } : {}),
+      },
+    };
+  }
+
+  async getStudentProfile(query: StudentProfileQuery = {}): Promise<DataResult<StudentProfileResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const selectedSchoolYear = query.schoolYear?.trim() || undefined;
+    const response = await this.fetchData(
+      studentProfileUrl(selection.data.student.id, { version: this.http.version }),
+      { anneeScolaire: selectedSchoolYear ?? "" },
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeStudentProfileResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected student profile response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        ...normalized.data,
+        ...(selectedSchoolYear ? { selectedSchoolYear } : {}),
       },
     };
   }
@@ -633,19 +667,68 @@ export class EdDataService {
   ): Promise<DataResult<{ account: AccountInfo; student: StudentInfo }>> {
     const authState = await this.ensureReadyAuth();
     if (!authState.ok) return authState;
-    return this.resolveStudent(authState.accounts, studentId, accountId);
+
+    const selection = this.resolveStudent(authState.accounts, studentId, accountId);
+    if (!selection.ok) return selection;
+
+    const context = await this.ensureAccountContext(selection.data.account.id);
+    if (!context.ok) return context;
+
+    return this.resolveStudent(context.data.accounts, selection.data.student.id, selection.data.account.id);
   }
 
-  private async fetchData(url: string): Promise<DataResult<RawApiResponse>> {
+  private async ensureFamilySelection(accountId?: number): Promise<DataResult<AccountInfo>> {
+    const authState = await this.ensureReadyAuth();
+    if (!authState.ok) return authState;
+
+    if (authState.accounts.length === 0) {
+      return this.failure(
+        "Authenticated session has no account metadata. Re-authenticate or import a session that includes accounts.",
+        false,
+      );
+    }
+
+    const family = this.resolveFamily(authState.accounts, accountId);
+    if (!family.ok) return family;
+
+    const context = await this.ensureAccountContext(family.data.id);
+    if (!context.ok) return context;
+    return { ok: true, data: context.data.account };
+  }
+
+  private async ensureAccountContext(
+    accountId: number,
+  ): Promise<DataResult<{ accounts: AccountInfo[]; account: AccountInfo }>> {
+    const switched = await this.auth.switchAccount(accountId);
+    if (switched.status !== "authenticated") {
+      return authFailure(switched);
+    }
+
+    const account = switched.accounts.find((candidate) => candidate.id === accountId);
+    if (account) {
+      return { ok: true, data: { accounts: switched.accounts, account } };
+    }
+
+    return this.failure(
+      `Unknown accountId ${accountId}.`,
+      true,
+      { availableFamilies: switched.accounts.map((candidate) => summarizeFamily(candidate)) },
+    );
+  }
+
+  private async fetchData(
+    url: string,
+    body: Record<string, unknown> = {},
+  ): Promise<DataResult<RawApiResponse>> {
     try {
-      const first = await this.post(url);
+      const first = await this.post(url, body);
       if (requiresSessionRefresh(first)) {
         const refreshed = await this.auth.validateSession();
         if (refreshed.status !== "authenticated") {
           return authFailure(refreshed);
         }
 
-        const retry = await this.post(url);
+        const retry = await this.post(url, body);
         if (retry.code === ApiCode.OK) {
           return { ok: true, data: retry };
         }
@@ -665,8 +748,8 @@ export class EdDataService {
     }
   }
 
-  private async post(url: string): Promise<RawApiResponse> {
-    const response = await this.http.postForm(url, {}, { includeGtk: false });
+  private async post(url: string, body: Record<string, unknown>): Promise<RawApiResponse> {
+    const response = await this.http.postForm(url, body, { includeGtk: false });
     this.http.captureAuthHeaders(response);
     return (await response.json()) as RawApiResponse;
   }
@@ -683,6 +766,9 @@ export class EdDataService {
     }
 
     if (accounts.length === 1) return { ok: true, data: accounts[0] };
+
+  const current = accounts.filter((account) => account.current === true);
+  if (current.length === 1) return { ok: true, data: current[0] };
 
     const main = accounts.filter((account) => account.main === true);
     if (main.length === 1) return { ok: true, data: main[0] };
@@ -740,6 +826,19 @@ export class EdDataService {
         "Multiple students are available for this family account. Retry with studentId.",
         true,
         { availableStudents: candidates.map((candidate) => summarizeStudent(candidate.account, candidate.student)) },
+      );
+    }
+
+    const currentAccountCandidates = candidates.filter((candidate) => candidate.account.current === true);
+    if (currentAccountCandidates.length === 1) {
+      return { ok: true, data: currentAccountCandidates[0] };
+    }
+
+    if (currentAccountCandidates.length > 1) {
+      return this.failure(
+        "Multiple students are available for the current family account. Retry with studentId.",
+        true,
+        { availableStudents: currentAccountCandidates.map((candidate) => summarizeStudent(candidate.account, candidate.student)) },
       );
     }
 
@@ -836,6 +935,7 @@ function summarizeFamily(account: AccountInfo): FamilyChoice {
     name: account.name,
     ...(account.establishment ? { establishment: account.establishment } : {}),
     ...(account.main !== undefined ? { main: account.main } : {}),
+    ...(account.current !== undefined ? { current: account.current } : {}),
   };
 }
 

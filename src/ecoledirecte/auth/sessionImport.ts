@@ -79,7 +79,9 @@ function normalizeAccounts(accounts: unknown): AccountInfo[] | undefined {
         : typeof candidate.nomEtablissement === "string"
           ? candidate.nomEtablissement
           : undefined;
+    const idLogin = typeof candidate.idLogin === "number" ? candidate.idLogin : undefined;
     const main = typeof candidate.main === "boolean" ? candidate.main : undefined;
+    const current = typeof candidate.current === "boolean" ? candidate.current : undefined;
     const students = normalizeStudents(candidate);
 
     return [{
@@ -87,7 +89,9 @@ function normalizeAccounts(accounts: unknown): AccountInfo[] | undefined {
       type,
       name,
       ...(establishment ? { establishment } : {}),
+      ...(idLogin !== undefined ? { idLogin } : {}),
       ...(main !== undefined ? { main } : {}),
+      ...(current !== undefined ? { current } : {}),
       ...(students ? { students } : {}),
     }];
   });
