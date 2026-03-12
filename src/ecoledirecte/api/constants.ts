@@ -48,6 +48,36 @@ export function studentNotesUrl(studentId: number, opts: { version?: string } = 
   return `${API_BASE}/${API_VERSION}/eleves/${studentId}/notes.awp?verbe=get&v=${v}`;
 }
 
+export function studentCahierDeTextesUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/Eleves/${studentId}/cahierdetexte.awp?verbe=get&v=${v}`;
+}
+
+export function studentVieScolaireUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/eleves/${studentId}/viescolaire.awp?verbe=get&v=${v}`;
+}
+
+export function classVieDeLaClasseUrl(classId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/Classes/${classId}/viedelaclasse.awp?verbe=get&v=${v}`;
+}
+
+export function studentCarnetCorrespondanceUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/eleves/${studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=${v}`;
+}
+
+export function studentSessionsRdvUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/E/${studentId}/sessionsRdv.awp?verbe=get&v=${v}`;
+}
+
+export function studentEmploiDuTempsUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/E/${studentId}/emploidutemps.awp?verbe=get&v=${v}`;
+}
+
 /**
  * Lightweight "am I still logged in?" probe.
  * The browser calls this route immediately after successful authentication.

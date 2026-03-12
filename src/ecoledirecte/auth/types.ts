@@ -70,7 +70,9 @@ export interface AccountInfo {
 export interface StudentInfo {
   id: number;
   name: string;
+  classId?: number;
   className?: string;
+  classCode?: string;
   establishment?: string;
 }
 

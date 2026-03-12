@@ -4,8 +4,14 @@ import {
   familyMessagesUrl,
   loginUrl,
   probeUrl,
+  classVieDeLaClasseUrl,
+  studentCahierDeTextesUrl,
+  studentCarnetCorrespondanceUrl,
+  studentEmploiDuTempsUrl,
   studentMessagesUrl,
   studentNotesUrl,
+  studentSessionsRdvUrl,
+  studentVieScolaireUrl,
   API_BASE,
   API_VERSION,
   DEFAULT_APP_VERSION,
@@ -82,6 +88,60 @@ describe("studentNotesUrl", () => {
     const url = studentNotesUrl(1154);
     expect(url).toBe(
       `${API_BASE}/${API_VERSION}/eleves/1154/notes.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentCahierDeTextesUrl", () => {
+  it("returns the student homework endpoint", () => {
+    const url = studentCahierDeTextesUrl(1154);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/Eleves/1154/cahierdetexte.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentVieScolaireUrl", () => {
+  it("returns the student school life endpoint", () => {
+    const url = studentVieScolaireUrl(1154);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/eleves/1154/viescolaire.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("classVieDeLaClasseUrl", () => {
+  it("returns the class life endpoint", () => {
+    const url = classVieDeLaClasseUrl(18);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/Classes/18/viedelaclasse.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentCarnetCorrespondanceUrl", () => {
+  it("returns the carnet de correspondance endpoint", () => {
+    const url = studentCarnetCorrespondanceUrl(1154);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/eleves/1154/eleveCarnetCorrespondance.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentSessionsRdvUrl", () => {
+  it("returns the student sessions RDV endpoint", () => {
+    const url = studentSessionsRdvUrl(1154);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/E/1154/sessionsRdv.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentEmploiDuTempsUrl", () => {
+  it("returns the student timetable endpoint", () => {
+    const url = studentEmploiDuTempsUrl(1154, { version: "5.0.0" });
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/E/1154/emploidutemps.awp?verbe=get&v=5.0.0`,
     );
   });
 });

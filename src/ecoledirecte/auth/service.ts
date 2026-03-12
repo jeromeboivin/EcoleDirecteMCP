@@ -434,7 +434,7 @@ function extractAccounts(body: RawApiResponse): AccountInfo[] {
             nom: string;
             prenom: string;
             nomEtablissement?: string;
-            classe?: { libelle?: string };
+            classe?: { id?: number; libelle?: string; code?: string };
           }>;
         };
       }>
@@ -445,7 +445,9 @@ function extractAccounts(body: RawApiResponse): AccountInfo[] {
       ? account.profile.eleves.map((student) => ({
           id: student.id,
           name: `${student.prenom} ${student.nom}`.trim(),
+          ...(student.classe?.id !== undefined ? { classId: student.classe.id } : {}),
           ...(student.classe?.libelle ? { className: student.classe.libelle } : {}),
+          ...(student.classe?.code ? { classCode: student.classe.code } : {}),
           ...(student.nomEtablissement ? { establishment: student.nomEtablissement } : {}),
         }))
       : undefined;

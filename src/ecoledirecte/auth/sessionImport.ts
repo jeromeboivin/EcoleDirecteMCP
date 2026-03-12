@@ -123,10 +123,20 @@ function normalizeStudents(candidate: Record<string, unknown>): AccountInfo["stu
     if (!name) return [];
 
     const classe = value.classe as Record<string, unknown> | undefined;
+    const classId = typeof value.classId === "number"
+      ? value.classId
+      : typeof classe?.id === "number"
+        ? classe.id
+        : undefined;
     const className = typeof value.className === "string"
       ? value.className
       : typeof classe?.libelle === "string"
         ? classe.libelle
+        : undefined;
+    const classCode = typeof value.classCode === "string"
+      ? value.classCode
+      : typeof classe?.code === "string"
+        ? classe.code
         : undefined;
     const establishment = typeof value.establishment === "string"
       ? value.establishment
@@ -137,7 +147,9 @@ function normalizeStudents(candidate: Record<string, unknown>): AccountInfo["stu
     return [{
       id: value.id,
       name,
+      ...(classId !== undefined ? { classId } : {}),
       ...(className ? { className } : {}),
+      ...(classCode ? { classCode } : {}),
       ...(establishment ? { establishment } : {}),
     }];
   });

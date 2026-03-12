@@ -1,11 +1,41 @@
 import {
+  classVieDeLaClasseUrl,
   familyMessagesUrl,
+  studentCahierDeTextesUrl,
+  studentCarnetCorrespondanceUrl,
+  studentEmploiDuTempsUrl,
   studentMessagesUrl,
   studentNotesUrl,
+  studentSessionsRdvUrl,
+  studentVieScolaireUrl,
   type MessageMailbox,
 } from "../api/constants.js";
+import {
+  normalizeCahierDeTextesResponse,
+  type CahierDeTextesPayload,
+} from "../api/cahierDeTextes.js";
+import {
+  normalizeCarnetCorrespondanceResponse,
+  type CarnetCorrespondancePayload,
+} from "../api/carnetCorrespondance.js";
+import {
+  normalizeEmploiDuTempsResponse,
+  type EmploiDuTempsPayload,
+} from "../api/emploiDuTemps.js";
 import { normalizeMessagesResponse, type MessagesPayload } from "../api/messages.js";
 import { normalizeNotesResponse, type NotesPayload } from "../api/notes.js";
+import {
+  normalizeSessionsRdvResponse,
+  type SessionsRdvPayload,
+} from "../api/sessionsRdv.js";
+import {
+  normalizeVieDeLaClasseResponse,
+  type VieDeLaClassePayload,
+} from "../api/vieDeLaClasse.js";
+import {
+  normalizeVieScolaireResponse,
+  type VieScolairePayload,
+} from "../api/vieScolaire.js";
 import { ApiCode, type RawApiResponse } from "../api/normalize.js";
 import type { AuthService } from "../auth/service.js";
 import type { AccountInfo, AuthState, StudentInfo } from "../auth/types.js";
@@ -30,6 +60,38 @@ export interface StudentNotesQuery {
   periodCode?: string;
 }
 
+export interface StudentCahierDeTextesQuery {
+  accountId?: number;
+  studentId?: number;
+  date?: string;
+}
+
+export interface StudentVieScolaireQuery {
+  accountId?: number;
+  studentId?: number;
+}
+
+export interface StudentCarnetCorrespondanceQuery {
+  accountId?: number;
+  studentId?: number;
+}
+
+export interface StudentSessionsRdvQuery {
+  accountId?: number;
+  studentId?: number;
+}
+
+export interface ClassVieDeLaClasseQuery {
+  accountId?: number;
+  studentId?: number;
+}
+
+export interface StudentEmploiDuTempsQuery {
+  accountId?: number;
+  studentId?: number;
+  date?: string;
+}
+
 export interface FamilyChoice {
   id: number;
   name: string;
@@ -40,10 +102,18 @@ export interface FamilyChoice {
 export interface StudentChoice {
   id: number;
   name: string;
+  classId?: number;
   className?: string;
+  classCode?: string;
   establishment?: string;
   accountId: number;
   accountName: string;
+}
+
+export interface ClassChoice {
+  id: number;
+  name?: string;
+  code?: string;
 }
 
 export interface DataFailure {
@@ -78,6 +148,45 @@ export interface StudentNotesResult extends NotesPayload {
   family: FamilyChoice;
   student: StudentChoice;
   selectedPeriodCode?: string;
+}
+
+export interface StudentCahierDeTextesResult extends CahierDeTextesPayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+  selectedDate?: string;
+}
+
+export interface StudentVieScolaireResult extends VieScolairePayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+}
+
+export interface StudentCarnetCorrespondanceResult extends CarnetCorrespondancePayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+}
+
+export interface StudentSessionsRdvResult extends SessionsRdvPayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+}
+
+export interface ClassVieDeLaClasseResult extends VieDeLaClassePayload {
+  scope: "class";
+  family: FamilyChoice;
+  student: StudentChoice;
+  class: ClassChoice;
+}
+
+export interface StudentEmploiDuTempsResult extends EmploiDuTempsPayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+  selectedDate?: string;
 }
 
 export type DataResult<T> = { ok: true; data: T } | DataFailure;
@@ -239,6 +348,218 @@ export class EdDataService {
     };
   }
 
+  async getStudentCahierDeTextes(
+    query: StudentCahierDeTextesQuery = {},
+  ): Promise<DataResult<StudentCahierDeTextesResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const response = await this.fetchData(
+      studentCahierDeTextesUrl(selection.data.student.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeCahierDeTextesResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected cahier de textes response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const selectedDate = query.date?.trim() || undefined;
+    const days = selectedDate
+      ? normalized.data.days.filter((day) => day.date === selectedDate)
+      : normalized.data.days;
+
+    if (selectedDate && days.length === 0) {
+      return this.failure(
+        `Unknown cahier de textes date '${selectedDate}'. Retry without a filter to inspect available dates first.`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        days,
+        totalAssignments: days.reduce((sum, day) => sum + day.assignments.length, 0),
+        ...(selectedDate ? { selectedDate } : {}),
+      },
+    };
+  }
+
+  async getStudentVieScolaire(
+    query: StudentVieScolaireQuery = {},
+  ): Promise<DataResult<StudentVieScolaireResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const response = await this.fetchData(
+      studentVieScolaireUrl(selection.data.student.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeVieScolaireResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected vie scolaire response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        ...normalized.data,
+      },
+    };
+  }
+
+  async listStudentCarnetCorrespondance(
+    query: StudentCarnetCorrespondanceQuery = {},
+  ): Promise<DataResult<StudentCarnetCorrespondanceResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const response = await this.fetchData(
+      studentCarnetCorrespondanceUrl(selection.data.student.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeCarnetCorrespondanceResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected carnet de correspondance response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        ...normalized.data,
+      },
+    };
+  }
+
+  async listStudentSessionsRdv(
+    query: StudentSessionsRdvQuery = {},
+  ): Promise<DataResult<StudentSessionsRdvResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const response = await this.fetchData(
+      studentSessionsRdvUrl(selection.data.student.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeSessionsRdvResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected sessions RDV response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getClassVieDeLaClasse(
+    query: ClassVieDeLaClasseQuery = {},
+  ): Promise<DataResult<ClassVieDeLaClasseResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const classSelection = this.resolveClass(selection.data.student);
+    if (!classSelection.ok) return classSelection;
+
+    const response = await this.fetchData(
+      classVieDeLaClasseUrl(classSelection.data.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeVieDeLaClasseResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected vie de la classe response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "class",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        class: classSelection.data,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getStudentEmploiDuTemps(
+    query: StudentEmploiDuTempsQuery = {},
+  ): Promise<DataResult<StudentEmploiDuTempsResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const response = await this.fetchData(
+      studentEmploiDuTempsUrl(selection.data.student.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeEmploiDuTempsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected emploi du temps response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const selectedDate = query.date?.trim() || undefined;
+    const days = selectedDate
+      ? normalized.data.days.filter((day) => day.date === selectedDate)
+      : normalized.data.days;
+
+    if (selectedDate && days.length === 0) {
+      return this.failure(
+        `Unknown emploi du temps date '${selectedDate}'. Retry without a filter to inspect available dates first.`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        days,
+        totalEvents: days.reduce((sum, day) => sum + day.events.length, 0),
+        ...(selectedDate ? { selectedDate } : {}),
+      },
+    };
+  }
+
   private async ensureReadyAuth(): Promise<
     | { ok: true; accounts: AccountInfo[] }
     | DataFailure
@@ -251,6 +572,15 @@ export class EdDataService {
     }
 
     return authFailure(state);
+  }
+
+  private async ensureStudentSelection(
+    studentId?: number,
+    accountId?: number,
+  ): Promise<DataResult<{ account: AccountInfo; student: StudentInfo }>> {
+    const authState = await this.ensureReadyAuth();
+    if (!authState.ok) return authState;
+    return this.resolveStudent(authState.accounts, studentId, accountId);
   }
 
   private async fetchData(url: string): Promise<DataResult<RawApiResponse>> {
@@ -372,6 +702,24 @@ export class EdDataService {
     );
   }
 
+  private resolveClass(student: StudentInfo): DataResult<ClassChoice> {
+    if (student.classId === undefined) {
+      return this.failure(
+        "No class metadata is available for the selected student. Re-authenticate or import a session that includes class information.",
+        false,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        id: student.classId,
+        ...(student.className ? { name: student.className } : {}),
+        ...(student.classCode ? { code: student.classCode } : {}),
+      },
+    };
+  }
+
   private failure(
     error: string,
     recoverable: boolean,
@@ -442,7 +790,9 @@ function summarizeStudent(account: AccountInfo, student: StudentInfo): StudentCh
   return {
     id: student.id,
     name: student.name,
+    ...(student.classId !== undefined ? { classId: student.classId } : {}),
     ...(student.className ? { className: student.className } : {}),
+    ...(student.classCode ? { classCode: student.classCode } : {}),
     ...(student.establishment ? { establishment: student.establishment } : {}),
     accountId: account.id,
     accountName: account.name,

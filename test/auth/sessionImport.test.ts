@@ -60,7 +60,7 @@ describe("parseSessionFile", () => {
                   nom: "BOIVIN",
                   prenom: "Antonin",
                   nomEtablissement: "Les Marronniers",
-                  classe: { libelle: "3B" },
+                  classe: { id: 18, libelle: "3B", code: "3B" },
                 },
               ],
             },
@@ -82,7 +82,9 @@ describe("parseSessionFile", () => {
           {
             id: 1154,
             name: "Antonin BOIVIN",
+            classId: 18,
             className: "3B",
+            classCode: "3B",
             establishment: "Les Marronniers",
           },
         ],
