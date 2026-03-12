@@ -24,6 +24,9 @@ async function main(): Promise<void> {
   try {
     const restored = await auth.restore();
     log("info", `Auth restore result: ${restored.status}`);
+    if (restored.status === "error") {
+      log("warn", `Restore ended in error: ${restored.message}`);
+    }
   } catch (err) {
     log("warn", `Session restore failed: ${err instanceof Error ? err.message : String(err)}`);
   }

@@ -86,6 +86,18 @@ export function registerTools(server: McpServer, auth: AuthService): void {
       return toolResult(state);
     },
   );
+
+  // ── validate_session ────────────────────────────────────────
+  server.tool(
+    "validate_session",
+    "Validate the current session against the live API. Promotes an imported or restored session to authenticated, or clears it and falls back to saved credentials if stale.",
+    {},
+    async () => {
+      log("info", "validate_session tool invoked");
+      const state = await auth.validateSession();
+      return toolResult(state);
+    },
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────

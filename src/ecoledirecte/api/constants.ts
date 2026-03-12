@@ -13,6 +13,16 @@ export function loginUrl(opts: { gtk?: boolean; version?: string } = {}): string
   return `${base}?v=${v}`;
 }
 
+/**
+ * Lightweight "am I still logged in?" probe.
+ * Uses the same login.awp route; an authenticated request with a valid
+ * X-Token returns code 200 while an expired token returns code 521.
+ */
+export function probeUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/login.awp?v=${v}`;
+}
+
 /** Headers the server exposes via CORS that we may need to capture. */
 export const EXPOSED_HEADERS = [
   "X-Token",

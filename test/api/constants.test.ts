@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loginUrl, API_BASE, API_VERSION, DEFAULT_APP_VERSION } from "../../src/ecoledirecte/api/constants.js";
+import { loginUrl, probeUrl, API_BASE, API_VERSION, DEFAULT_APP_VERSION } from "../../src/ecoledirecte/api/constants.js";
 
 describe("loginUrl", () => {
   it("returns bootstrap URL with gtk=1", () => {
@@ -14,6 +14,18 @@ describe("loginUrl", () => {
 
   it("respects custom version", () => {
     const url = loginUrl({ version: "5.0.0" });
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/login.awp?v=5.0.0`);
+  });
+});
+
+describe("probeUrl", () => {
+  it("returns default probe URL", () => {
+    const url = probeUrl();
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/login.awp?v=${DEFAULT_APP_VERSION}`);
+  });
+
+  it("respects custom version", () => {
+    const url = probeUrl({ version: "5.0.0" });
     expect(url).toBe(`${API_BASE}/${API_VERSION}/login.awp?v=5.0.0`);
   });
 });

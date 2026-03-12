@@ -33,6 +33,35 @@ describe("EdHttpClient", () => {
     });
   });
 
+  describe("token", () => {
+    it("stores and retrieves token", () => {
+      const client = new EdHttpClient();
+      expect(client.getToken()).toBeUndefined();
+      client.setToken("tok-123");
+      expect(client.getToken()).toBe("tok-123");
+    });
+
+    it("clears token independently", () => {
+      const client = new EdHttpClient();
+      client.setToken("tok-123");
+      client.clearToken();
+      expect(client.getToken()).toBeUndefined();
+    });
+  });
+
+  describe("clearAuth", () => {
+    it("resets cookies, GTK, and token", () => {
+      const client = new EdHttpClient();
+      client.setCookie("A", "1");
+      client.setGtk("gtk-val");
+      client.setToken("tok-val");
+      client.clearAuth();
+      expect(client.getCookies()).toEqual({});
+      expect(client.getGtk()).toBeUndefined();
+      expect(client.getToken()).toBeUndefined();
+    });
+  });
+
   describe("version", () => {
     it("defaults to 4.96.3", () => {
       expect(new EdHttpClient().version).toBe("4.96.3");

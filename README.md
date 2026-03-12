@@ -6,7 +6,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 
 - **Direct login** — authenticates via the EcoleDirecte private API with the GTK bootstrap + credential POST flow.
 - **TOTP 2FA** — handles the two-factor continuation when the account requires it.
-- **Session import** — import an existing session from a browser-export JSON file.
+- **Session import** — import an existing session from a browser-export JSON file, validated against the live API.
+- **Session validation** — imported and restored sessions are probed before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700).
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -39,8 +40,9 @@ Configure your MCP client to launch this server via stdio:
 |------|-------------|
 | `login` | Authenticate with username and password |
 | `submit_totp` | Complete 2FA with a TOTP code |
-| `import_session` | Load a session from a browser-export JSON file |
-| `auth_status` | Check current authentication state |
+| `import_session` | Load a session from a browser-export JSON file and validate it |
+| `auth_status` | Check current authentication state (read-only) |
+| `validate_session` | Validate the current session against the live API |
 | `logout` | Clear the session (keeps saved credentials) |
 | `logout_full` | Clear both session and saved credentials |
 
@@ -77,6 +79,12 @@ Then use the `import_session` tool with the file path.
    - Code `250` → 2FA required, challenge data in response.
    - Code `505` → invalid credentials.
    - Code `516`/`535` → account blocked.
+   - Code `521` → session/token expired.
+
+4. **Session validation (probe):**
+   - Imported and restored sessions are probed with an authenticated POST.
+   - If the probe returns code `200`, the session is promoted to authenticated.
+   - If the probe returns code `521` (expired), the persisted session is cleared and the server falls back to saved credentials if available.
 
 ## Explicitly Out of Scope (v1)
 

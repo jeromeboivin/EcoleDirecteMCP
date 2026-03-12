@@ -10,6 +10,7 @@ import { CONTENT_TYPE_FORM } from "../api/constants.js";
 export class EdHttpClient {
   private cookies = new Map<string, string>();
   private xGtk: string | undefined;
+  private xToken: string | undefined;
   readonly version: string;
 
   constructor(opts: { version?: string } = {}) {
@@ -60,6 +61,20 @@ export class EdHttpClient {
     this.xGtk = value;
   }
 
+  // ── Token ────────────────────────────────────────────────────
+
+  getToken(): string | undefined {
+    return this.xToken;
+  }
+
+  setToken(value: string): void {
+    this.xToken = value;
+  }
+
+  clearToken(): void {
+    this.xToken = undefined;
+  }
+
   // ── Request helpers ──────────────────────────────────────────
 
   private buildCookieHeader(): string {
@@ -76,6 +91,7 @@ export class EdHttpClient {
     const cookieStr = this.buildCookieHeader();
     if (cookieStr) h["Cookie"] = cookieStr;
     if (this.xGtk) h["X-GTK"] = this.xGtk;
+    if (this.xToken) h["X-Token"] = this.xToken;
     return h;
   }
 
@@ -109,6 +125,15 @@ export class EdHttpClient {
   captureAuthHeaders(res: Response): void {
     const gtk = res.headers.get("X-GTK");
     if (gtk) this.xGtk = gtk;
+    const token = res.headers.get("X-Token");
+    if (token) this.xToken = token;
     this.ingestSetCookieHeaders(res.headers);
+  }
+
+  /** Reset all auth state (cookies, GTK, token). */
+  clearAuth(): void {
+    this.cookies.clear();
+    this.xGtk = undefined;
+    this.xToken = undefined;
   }
 }

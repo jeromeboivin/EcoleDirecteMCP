@@ -67,7 +67,38 @@ export function normalizeLoginResponse(raw: RawApiResponse): NormalizedLoginResu
     case ApiCode.MAINTENANCE:
       return { nextState: "error", message: raw.message || "Service unavailable", raw };
 
+    case ApiCode.EXPIRED_KEY:
+      return { nextState: "error", message: "Session expired", raw };
+
     default:
       return { nextState: "error", message: raw.message || `Unexpected code ${raw.code}`, raw };
   }
+}
+
+// ── Session probe normalization ────────────────────────────────
+
+export interface ProbeResult {
+  valid: boolean;
+  /** Refreshed token when the session is still alive. */
+  token?: string;
+  /** Human-readable reason when the session is invalid. */
+  reason?: string;
+  raw: RawApiResponse;
+}
+
+/**
+ * Normalize the response from a lightweight session probe.
+ *
+ *  - Code 200 → session alive, possibly with a rotated token.
+ *  - Code 521 → session expired.
+ *  - Anything else → treated as invalid.
+ */
+export function normalizeProbeResponse(raw: RawApiResponse): ProbeResult {
+  if (raw.code === ApiCode.OK) {
+    return { valid: true, token: raw.token || undefined, raw };
+  }
+  if (raw.code === ApiCode.EXPIRED_KEY) {
+    return { valid: false, reason: "Session expired", raw };
+  }
+  return { valid: false, reason: raw.message || `Unexpected code ${raw.code}`, raw };
 }
