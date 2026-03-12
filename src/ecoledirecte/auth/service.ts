@@ -244,46 +244,55 @@ export class AuthService {
       return this.state;
     }
 
-    this.http.setToken(token);
-    const url = probeUrl({ version: this.http.version });
-    const res = await this.http.postForm(url, {}, { includeGtk: false });
-    this.http.captureAuthHeaders(res);
+    try {
+      this.http.setToken(token);
+      const url = probeUrl({ version: this.http.version });
+      const res = await this.http.postForm(url, {}, { includeGtk: false });
+      this.http.captureAuthHeaders(res);
 
-    const body = (await res.json()) as RawApiResponse;
-    const probe = normalizeProbeResponse(body);
+      const body = (await res.json()) as RawApiResponse;
+      const probe = normalizeProbeResponse(body);
 
-    if (probe.valid) {
-      const resolvedToken = this.getResolvedToken(probe.token ?? token);
-      if (this.state.status === "authenticated") {
-        this.state = { ...this.state, token: resolvedToken };
-        await this.persistSession(resolvedToken, this.state.accounts);
+      if (probe.valid) {
+        const resolvedToken = this.getResolvedToken(probe.token ?? token);
+        if (this.state.status === "authenticated") {
+          this.state = { ...this.state, token: resolvedToken };
+          await this.persistSession(resolvedToken, this.state.accounts);
+          return this.state;
+        }
+        const accounts = this.state.status === "session-imported" ? this.state.accounts ?? [] : [];
+        this.state = {
+          status: "authenticated",
+          token: resolvedToken,
+          accounts,
+        };
+        await this.persistSession(resolvedToken, accounts);
         return this.state;
       }
-      const accounts = this.state.status === "session-imported" ? this.state.accounts ?? [] : [];
+
+      await this.store.clearSession();
+      this.http.clearAuth();
+
+      // Try saved credentials as fallback
+      const creds = await this.store.loadCredentials();
+      if (creds) {
+        return this.login(creds.identifiant, creds.motdepasse);
+      }
+
       this.state = {
-        status: "authenticated",
-        token: resolvedToken,
-        accounts,
+        status: "error",
+        message: probe.reason ?? "Session invalid",
+        recoverable: true,
       };
-      await this.persistSession(resolvedToken, accounts);
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Session validation failed: ${error instanceof Error ? error.message : String(error)}`,
+        recoverable: true,
+      };
       return this.state;
     }
-
-    await this.store.clearSession();
-    this.http.clearAuth();
-
-    // Try saved credentials as fallback
-    const creds = await this.store.loadCredentials();
-    if (creds) {
-      return this.login(creds.identifiant, creds.motdepasse);
-    }
-
-    this.state = {
-      status: "error",
-      message: probe.reason ?? "Session invalid",
-      recoverable: true,
-    };
-    return this.state;
   }
 
   // ── Session restore on startup ───────────────────────────────

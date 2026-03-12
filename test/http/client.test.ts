@@ -89,4 +89,28 @@ describe("EdHttpClient", () => {
       expect(new EdHttpClient({ version: "5.0.0" }).version).toBe("5.0.0");
     });
   });
+
+  describe("request headers", () => {
+    it("sends a browser-compatible user agent by default", async () => {
+      const originalFetch = globalThis.fetch;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        const headers = new Headers(init?.headers);
+        expect(headers.get("user-agent")).toBe(
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+        );
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        await client.postForm("https://example.test", {});
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
 });

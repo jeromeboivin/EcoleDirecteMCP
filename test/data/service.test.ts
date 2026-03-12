@@ -97,6 +97,22 @@ const notesBody: RawApiResponse = {
 };
 
 describe("EdDataService", () => {
+  it("accepts successful data responses that omit the message field", async () => {
+    const responseWithoutMessage = {
+      code: ApiCode.OK,
+      token: "",
+      data: messagesBody.data,
+    } as RawApiResponse;
+    const service = new EdDataService(makeHttp([responseWithoutMessage]), makeAuth(authenticatedState) as any);
+
+    const result = await service.listStudentMessages({ studentId: 1154 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.messages).toHaveLength(1);
+    }
+  });
+
   it("uses the main family account by default for family messages", async () => {
     const http = makeHttp([messagesBody]);
     const auth = makeAuth(authenticatedState);

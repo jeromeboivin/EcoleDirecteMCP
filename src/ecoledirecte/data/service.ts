@@ -425,7 +425,7 @@ function authFailure(state: AuthState): DataFailure {
 }
 
 function requiresSessionRefresh(raw: RawApiResponse): boolean {
-  const message = raw.message.toLowerCase();
+  const message = typeof raw.message === "string" ? raw.message.toLowerCase() : "";
   return raw.code === ApiCode.EXPIRED_KEY || message.includes("token invalide") || message.includes("session expir");
 }
 

@@ -422,6 +422,22 @@ describe("AuthService", () => {
         recoverable: true,
       });
     });
+
+    it("returns a recoverable error when the probe request fails", async () => {
+      const http = makeHttp([]);
+      vi.mocked(http.getToken).mockReturnValue("imported-token");
+      vi.mocked(http.postForm).mockRejectedValue(new TypeError("fetch failed"));
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.validateSession();
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Session validation failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
+    });
   });
 
   describe("logout", () => {
