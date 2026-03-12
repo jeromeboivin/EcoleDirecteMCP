@@ -412,15 +412,44 @@ function extractAccounts(body: RawApiResponse): AccountInfo[] {
   const data = body.data as Record<string, unknown> | undefined;
   if (!data) return [];
   const accounts = data.accounts as
-    | Array<{ id: number; typeCompte: string; nom: string; prenom: string; nomEtablissement?: string }>
+    | Array<{
+        id: number;
+        typeCompte: string;
+        nom: string;
+        prenom: string;
+        nomEtablissement?: string;
+        main?: boolean;
+        profile?: {
+          eleves?: Array<{
+            id: number;
+            nom: string;
+            prenom: string;
+            nomEtablissement?: string;
+            classe?: { libelle?: string };
+          }>;
+        };
+      }>
     | undefined;
   if (!Array.isArray(accounts)) return [];
-  return accounts.map((a) => ({
-    id: a.id,
-    type: a.typeCompte,
-    name: `${a.prenom} ${a.nom}`.trim(),
-    establishment: a.nomEtablissement,
-  }));
+  return accounts.map((account) => {
+    const students = Array.isArray(account.profile?.eleves)
+      ? account.profile.eleves.map((student) => ({
+          id: student.id,
+          name: `${student.prenom} ${student.nom}`.trim(),
+          ...(student.classe?.libelle ? { className: student.classe.libelle } : {}),
+          ...(student.nomEtablissement ? { establishment: student.nomEtablissement } : {}),
+        }))
+      : undefined;
+
+    return {
+      id: account.id,
+      type: account.typeCompte,
+      name: `${account.prenom} ${account.nom}`.trim(),
+      ...(account.nomEtablissement ? { establishment: account.nomEtablissement } : {}),
+      ...(account.main !== undefined ? { main: account.main } : {}),
+      ...(students && students.length > 0 ? { students } : {}),
+    };
+  });
 }
 
 function decodeBase64String(value: unknown): string {

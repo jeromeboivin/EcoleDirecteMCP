@@ -9,6 +9,9 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Secure identity question** — handles the non-TOTP double-auth flow that asks the user to answer a verification question, then replays the login with the returned challenge proof.
 - **Session import** — import an existing session from a browser-export JSON file, validated against the live API.
 - **Session validation** — imported and restored sessions are probed through `rdt/sondages.awp` before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
+- **Family messagerie** — lists family-level messages through the authenticated `familles/{id}/messages.awp` route.
+- **Student messagerie** — lists student-level messages through the authenticated `eleves/{id}/messages.awp` route.
+- **Student notes** — returns period summaries and grade rows through the authenticated `eleves/{id}/notes.awp` route.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700).
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -45,8 +48,13 @@ Configure your MCP client to launch this server via stdio:
 | `import_session` | Load a session from a browser-export JSON file and validate it |
 | `auth_status` | Check current authentication state (read-only) |
 | `validate_session` | Validate the current session against the live API |
+| `list_family_messages` | List family-level messages for the authenticated family account |
+| `list_student_messages` | List student-level messages for a selected student |
+| `get_student_notes` | Get student notes plus period averages for a selected student |
 | `logout` | Clear the session (keeps saved credentials) |
 | `logout_full` | Clear both session and saved credentials |
+
+If multiple family accounts or students are available, pass `accountId` and/or `studentId`. The tool error payload lists the available choices when selection is ambiguous.
 
 ## Browser Session Export Format
 
@@ -62,7 +70,16 @@ To import an existing browser session, create a JSON file with this structure:
   },
   "xGtk": "<X-GTK header value>",
   "accounts": [
-    { "id": 828, "type": "1", "name": "Jane Doe", "establishment": "My School" }
+    {
+      "id": 828,
+      "type": "1",
+      "name": "Jane Doe",
+      "establishment": "My School",
+      "main": true,
+      "students": [
+        { "id": 1154, "name": "Antonin Doe", "className": "3B", "establishment": "My School" }
+      ]
+    }
   ],
   "version": "4.96.3"
 }
@@ -93,6 +110,13 @@ Then use the `import_session` tool with the file path.
    - If the probe returns code `200`, the session is promoted to authenticated.
    - If the probe returns code `521` (expired), the persisted session is cleared and the server falls back to saved credentials if available.
 
+## Data Routes (Reverse-Engineered)
+
+- **Family messages** → `POST /v3/familles/{familyId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
+- **Student messages** → `POST /v3/eleves/{studentId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
+- **Student notes** → `POST /v3/eleves/{studentId}/notes.awp?verbe=get&v=4.96.3`
+- All three routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
+
 ## Explicitly Out of Scope (v1)
 
 - SSO / OAuth / EduConnect federated login
@@ -115,18 +139,23 @@ LOG_LEVEL=debug   # Set for verbose logging (debug|info|warn|error)
 ```
 src/
 ├── index.ts                          # stdio entrypoint
-├── server/tools.ts                   # MCP tool definitions
+├── server/tools.ts                   # Auth MCP tool definitions
+├── server/dataTools.ts               # Messaging and notes MCP tool definitions
 └── ecoledirecte/
     ├── logging.ts                    # Structured logging with redaction
     ├── api/
     │   ├── constants.ts              # Endpoints, headers, defaults
-    │   └── normalize.ts              # Response normalization
+  │   ├── normalize.ts              # Auth/session response normalization
+  │   ├── messages.ts               # Messaging response normalization
+  │   └── notes.ts                  # Notes response normalization
     ├── auth/
     │   ├── types.ts                  # Auth state machine types
     │   ├── service.ts                # Login/TOTP/restore orchestration
     │   ├── store.ts                  # Persistence interface
     │   ├── fileStore.ts              # File-system persistence adapter
     │   └── sessionImport.ts          # Browser-export file parser
+  ├── data/
+  │   └── service.ts                # Authenticated messages and notes access
     └── http/
         └── client.ts                 # Cookie-aware HTTP client
 ```

@@ -10,6 +10,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { EdHttpClient } from "./ecoledirecte/http/client.js";
 import { AuthService } from "./ecoledirecte/auth/service.js";
 import { FileAuthStore } from "./ecoledirecte/auth/fileStore.js";
+import { EdDataService } from "./ecoledirecte/data/service.js";
+import { registerDataTools } from "./server/dataTools.js";
 import { registerTools } from "./server/tools.js";
 import { log } from "./ecoledirecte/logging.js";
 
@@ -19,6 +21,7 @@ async function main(): Promise<void> {
   const http = new EdHttpClient();
   const store = new FileAuthStore();
   const auth = new AuthService(http, store);
+  const data = new EdDataService(http, auth);
 
   // Attempt to restore a previous session or saved credentials
   try {
@@ -37,6 +40,7 @@ async function main(): Promise<void> {
   });
 
   registerTools(server, auth);
+  registerDataTools(server, data);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

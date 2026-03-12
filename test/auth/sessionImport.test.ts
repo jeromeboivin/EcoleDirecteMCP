@@ -38,6 +38,58 @@ describe("parseSessionFile", () => {
     expect(result.savedAt).toBeDefined();
   });
 
+  it("normalizes browser-style account payloads with nested students", async () => {
+    const file = join(dir, "session.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        token: "tok123",
+        cookies: { GTK: "abc" },
+        accounts: [
+          {
+            id: 828,
+            typeCompte: "1",
+            nom: "ROUDIER-BOIVIN",
+            prenom: "Anne",
+            nomEtablissement: "Les Marronniers",
+            main: true,
+            profile: {
+              eleves: [
+                {
+                  id: 1154,
+                  nom: "BOIVIN",
+                  prenom: "Antonin",
+                  nomEtablissement: "Les Marronniers",
+                  classe: { libelle: "3B" },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+
+    const result = await parseSessionFile(file);
+
+    expect(result.accounts).toEqual([
+      {
+        id: 828,
+        type: "1",
+        name: "Anne ROUDIER-BOIVIN",
+        establishment: "Les Marronniers",
+        main: true,
+        students: [
+          {
+            id: 1154,
+            name: "Antonin BOIVIN",
+            className: "3B",
+            establishment: "Les Marronniers",
+          },
+        ],
+      },
+    ]);
+  });
+
   it("defaults version to 4.96.3 when missing", async () => {
     const file = join(dir, "session.json");
     await writeFile(file, JSON.stringify({ token: "t", cookies: {} }));

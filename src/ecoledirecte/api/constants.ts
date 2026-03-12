@@ -18,6 +18,36 @@ export function doubleAuthUrl(opts: { verb: "get" | "post"; version?: string }):
   return `${API_BASE}/${API_VERSION}/connexion/doubleauth.awp?verbe=${opts.verb}&v=${v}`;
 }
 
+export type MessageMailbox = "received" | "sent" | "archived" | "draft";
+
+export interface MessagesUrlOptions {
+  mailbox?: MessageMailbox;
+  folderId?: number;
+  query?: string;
+  page?: number;
+  itemsPerPage?: number;
+  version?: string;
+}
+
+export function familyMessagesUrl(
+  familyId: number,
+  opts: MessagesUrlOptions = {},
+): string {
+  return messagesUrl(`familles/${familyId}`, opts);
+}
+
+export function studentMessagesUrl(
+  studentId: number,
+  opts: MessagesUrlOptions = {},
+): string {
+  return messagesUrl(`eleves/${studentId}`, opts);
+}
+
+export function studentNotesUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/eleves/${studentId}/notes.awp?verbe=get&v=${v}`;
+}
+
 /**
  * Lightweight "am I still logged in?" probe.
  * The browser calls this route immediately after successful authentication.
@@ -42,3 +72,13 @@ export const EXPOSED_HEADERS = [
 ] as const;
 
 export const CONTENT_TYPE_FORM = "application/x-www-form-urlencoded";
+
+function messagesUrl(scopePath: string, opts: MessagesUrlOptions): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const mailbox = opts.mailbox ?? "received";
+  const folderId = opts.folderId ?? 0;
+  const page = opts.page ?? 0;
+  const itemsPerPage = opts.itemsPerPage ?? 100;
+  const query = encodeURIComponent(opts.query ?? "");
+  return `${API_BASE}/${API_VERSION}/${scopePath}/messages.awp?force=false&typeRecuperation=${mailbox}&idClasseur=${folderId}&orderBy=date&order=desc&query=${query}&onlyRead=&page=${page}&itemsPerPage=${itemsPerPage}&getAll=0&verbe=get&v=${v}`;
+}

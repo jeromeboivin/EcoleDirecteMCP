@@ -63,6 +63,15 @@ export interface AccountInfo {
   type: string;
   name: string;
   establishment?: string;
+  main?: boolean;
+  students?: StudentInfo[];
+}
+
+export interface StudentInfo {
+  id: number;
+  name: string;
+  className?: string;
+  establishment?: string;
 }
 
 /** Persisted credential material (encrypted or plain depending on store). */
