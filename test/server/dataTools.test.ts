@@ -67,6 +67,18 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         totalAssignments: 1,
       },
     }),
+    getStudentCahierDeTextesDay: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "student",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        student: { id: 1154, name: "Antonin Boivin", classId: 18, className: "3B", classCode: "3B", accountId: 828, accountName: "Anne Roudier-Boivin" },
+        date: "2026-03-12",
+        subjects: [{ subject: "ESPAGNOL LV2", homeworkId: 4579, interrogation: false, blogActive: false, maxSubmissionDays: 0, homework: { homeworkId: 4579, html: "<p>Devoir</p>", onlineSubmission: false, completed: true, submittedDocumentsUploaded: false, resourceDocuments: [], documents: [], curriculumElements: [], manualLinks: [], submittedDocuments: [], tags: [], personalizedAssignments: [] }, lessonContent: { lessonId: 4579, html: "<p>Cours</p>", documents: [], curriculumElements: [], manualLinks: [] } }],
+        homeworkCount: 1,
+        lessonContentCount: 1,
+      },
+    }),
     getStudentVieScolaire: vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -188,6 +200,7 @@ describe("MCP data tools", () => {
     registerDataTools(server as any, stubData() as any);
 
     expect(server.handlers.has("get_student_cahier_de_textes")).toBe(true);
+    expect(server.handlers.has("get_student_cahier_de_textes_day")).toBe(true);
     expect(server.handlers.has("get_student_vie_scolaire")).toBe(true);
     expect(server.handlers.has("list_student_carnet_correspondance")).toBe(true);
     expect(server.handlers.has("list_student_sessions_rdv")).toBe(true);
@@ -205,6 +218,19 @@ describe("MCP data tools", () => {
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("homework assignments");
     expect(data.getStudentCahierDeTextes).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
+  });
+
+  it("registers get_student_cahier_de_textes_day and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_student_cahier_de_textes_day")!({ studentId: 1154, date: "2026-03-12" });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("homework entries and 1 lesson content entries");
+    expect(result.content[0].text).toContain("2026-03-12");
+    expect(data.getStudentCahierDeTextesDay).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
   });
 
   it("registers get_class_vie_de_la_classe and summarizes empty responses", async () => {

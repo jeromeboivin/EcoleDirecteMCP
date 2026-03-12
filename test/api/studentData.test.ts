@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { normalizeCahierDeTextesResponse } from "../../src/ecoledirecte/api/cahierDeTextes.js";
+import {
+  normalizeCahierDeTextesDayResponse,
+  normalizeCahierDeTextesResponse,
+} from "../../src/ecoledirecte/api/cahierDeTextes.js";
 import { normalizeCarnetCorrespondanceResponse } from "../../src/ecoledirecte/api/carnetCorrespondance.js";
 import { normalizeEmploiDuTempsResponse } from "../../src/ecoledirecte/api/emploiDuTemps.js";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
@@ -33,6 +36,108 @@ describe("student data normalizers", () => {
       completed: false,
       interrogation: true,
       tags: ["Quiz"],
+    });
+  });
+
+  it("normalizes a cahier de textes day detail payload", () => {
+    const raw: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "",
+      message: "",
+      data: {
+        date: "2026-03-12",
+        matieres: [
+          {
+            entityCode: "3B-ESP",
+            entityLibelle: "3B espagnol",
+            entityType: "G",
+            matiere: "ESPAGNOL LV2",
+            codeMatiere: "ESP2",
+            nomProf: "Mme LADAVIERE V.",
+            id: 4579,
+            interrogation: false,
+            blogActif: false,
+            nbJourMaxRenduDevoir: 0,
+            aFaire: {
+              idDevoir: 4579,
+              contenu: "PHA+RGV2b2lyPC9wPg==",
+              rendreEnLigne: false,
+              donneLe: "2026-03-02",
+              effectue: true,
+              ressource: "",
+              documentsRendusDeposes: false,
+              ressourceDocuments: [],
+              documents: [],
+              elementsProg: [],
+              liensManuel: [],
+              documentsRendus: [],
+              tags: [{ libelle: "Quiz" }],
+              cdtPersonnalises: [],
+            },
+            contenuDeSeance: {
+              idDevoir: 4579,
+              contenu: "PHA+Q291cnM8L3A+",
+              documents: [],
+              elementsProg: [],
+              liensManuel: [],
+            },
+          },
+          {
+            matiere: "HISTOIRE-GEOGRAPHIE",
+            codeMatiere: "HI-GE",
+            nomProf: "M. PARFANT C.",
+            id: 4905,
+            interrogation: false,
+            blogActif: false,
+            nbJourMaxRenduDevoir: 0,
+            contenuDeSeance: {
+              idDevoir: 4905,
+              contenu: "PHA+Q29udGVudSBkZSBzw6lhbmNlPC9wPg==",
+              documents: [],
+              elementsProg: [],
+              liensManuel: [],
+            },
+          },
+        ],
+      },
+    };
+
+    const result = normalizeCahierDeTextesDayResponse(raw);
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toMatchObject({
+      date: "2026-03-12",
+      homeworkCount: 1,
+      lessonContentCount: 2,
+    });
+    expect(result.data?.subjects[0]).toMatchObject({
+      entityCode: "3B-ESP",
+      entityLabel: "3B espagnol",
+      entityType: "G",
+      subject: "ESPAGNOL LV2",
+      subjectCode: "ESP2",
+      teacher: "Mme LADAVIERE V.",
+      homeworkId: 4579,
+      homework: {
+        homeworkId: 4579,
+        html: "<p>Devoir</p>",
+        assignedOn: "2026-03-02",
+        completed: true,
+        onlineSubmission: false,
+        tags: ["Quiz"],
+      },
+      lessonContent: {
+        lessonId: 4579,
+        html: "<p>Cours</p>",
+      },
+    });
+    expect(result.data?.subjects[1]).toMatchObject({
+      subject: "HISTOIRE-GEOGRAPHIE",
+      homeworkId: 4905,
+      lessonContent: {
+        lessonId: 4905,
+        html: "<p>Contenu de séance</p>",
+      },
     });
   });
 

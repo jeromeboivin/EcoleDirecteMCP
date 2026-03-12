@@ -13,6 +13,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Student messagerie** — lists student-level messages through the authenticated `eleves/{id}/messages.awp` route.
 - **Student notes** — returns period summaries and grade rows through the authenticated `eleves/{id}/notes.awp` route.
 - **Cahier de textes** — returns homework grouped by day through the authenticated `Eleves/{id}/cahierdetexte.awp` route.
+- **Cahier de textes detail** — returns decoded homework content and lesson content for a selected day through the authenticated `Eleves/{id}/cahierdetexte/{date}.awp` route.
 - **Vie scolaire** — returns absences, dispenses, sanctions, and settings through the authenticated `eleves/{id}/viescolaire.awp` route.
 - **Carnet de correspondance** — lists correspondence entries and follow-ups through the authenticated `eleves/{id}/eleveCarnetCorrespondance.awp` route.
 - **Sessions RDV** — returns appointment sessions plus invitee metadata through the authenticated `E/{id}/sessionsRdv.awp` route.
@@ -58,6 +59,7 @@ Configure your MCP client to launch this server via stdio:
 | `list_student_messages` | List student-level messages for a selected student |
 | `get_student_notes` | Get student notes plus period averages for a selected student |
 | `get_student_cahier_de_textes` | Get student homework grouped by day for a selected student |
+| `get_student_cahier_de_textes_day` | Get decoded homework content and lesson content for a selected student on a specific date |
 | `get_student_vie_scolaire` | Get student absences, dispenses, sanctions, and settings |
 | `list_student_carnet_correspondance` | List carnet de correspondance entries for a selected student |
 | `list_student_sessions_rdv` | List appointment sessions and invitee metadata for a selected student |
@@ -135,6 +137,7 @@ Then use the `import_session` tool with the file path.
 - **Student messages** → `POST /v3/eleves/{studentId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
 - **Student notes** → `POST /v3/eleves/{studentId}/notes.awp?verbe=get&v=4.96.3`
 - **Student cahier de textes** → `POST /v3/Eleves/{studentId}/cahierdetexte.awp?verbe=get&v=4.96.3`
+- **Student cahier de textes day detail** → `POST /v3/Eleves/{studentId}/cahierdetexte/{date}.awp?verbe=get&v=4.96.3`
 - **Student vie scolaire** → `POST /v3/eleves/{studentId}/viescolaire.awp?verbe=get&v=4.96.3`
 - **Student carnet de correspondance** → `POST /v3/eleves/{studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=4.96.3`
 - **Student sessions RDV** → `POST /v3/E/{studentId}/sessionsRdv.awp?verbe=get&v=4.96.3`

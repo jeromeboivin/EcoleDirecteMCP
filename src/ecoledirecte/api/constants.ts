@@ -53,6 +53,15 @@ export function studentCahierDeTextesUrl(studentId: number, opts: { version?: st
   return `${API_BASE}/${API_VERSION}/Eleves/${studentId}/cahierdetexte.awp?verbe=get&v=${v}`;
 }
 
+export function studentCahierDeTextesDayUrl(
+  studentId: number,
+  date: string,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/Eleves/${studentId}/cahierdetexte/${encodeURIComponent(date)}.awp?verbe=get&v=${v}`;
+}
+
 export function studentVieScolaireUrl(studentId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${API_BASE}/${API_VERSION}/eleves/${studentId}/viescolaire.awp?verbe=get&v=${v}`;

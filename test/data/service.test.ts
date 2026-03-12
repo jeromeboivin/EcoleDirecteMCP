@@ -119,6 +119,49 @@ const cahierDeTextesBody: RawApiResponse = {
   },
 };
 
+const cahierDeTextesDayBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    date: "2026-03-12",
+    matieres: [
+      {
+        matiere: "ESPAGNOL LV2",
+        codeMatiere: "ESP2",
+        nomProf: "Mme LADAVIERE V.",
+        id: 4579,
+        interrogation: false,
+        blogActif: false,
+        nbJourMaxRenduDevoir: 0,
+        aFaire: {
+          idDevoir: 4579,
+          contenu: "PHA+RGV2b2lyPC9wPg==",
+          rendreEnLigne: false,
+          donneLe: "2026-03-02",
+          effectue: true,
+          ressource: "",
+          documentsRendusDeposes: false,
+          ressourceDocuments: [],
+          documents: [],
+          elementsProg: [],
+          liensManuel: [],
+          documentsRendus: [],
+          tags: [],
+          cdtPersonnalises: [],
+        },
+        contenuDeSeance: {
+          idDevoir: 4579,
+          contenu: "PHA+Q291cnM8L3A+",
+          documents: [],
+          elementsProg: [],
+          liensManuel: [],
+        },
+      },
+    ],
+  },
+};
+
 const vieScolaireBody: RawApiResponse = {
   code: ApiCode.OK,
   token: "",
@@ -323,6 +366,27 @@ describe("EdDataService", () => {
     }
     expect(http.postForm).toHaveBeenCalledWith(
       expect.stringContaining("/v3/Eleves/1154/cahierdetexte.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("returns cahier de textes day details with decoded homework content", async () => {
+    const http = makeHttp([cahierDeTextesDayBody]);
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.getStudentCahierDeTextesDay({ studentId: 1154, date: "2026-03-12" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.date).toBe("2026-03-12");
+      expect(result.data.homeworkCount).toBe(1);
+      expect(result.data.lessonContentCount).toBe(1);
+      expect(result.data.subjects[0]?.homework?.html).toBe("<p>Devoir</p>");
+      expect(result.data.subjects[0]?.lessonContent?.html).toBe("<p>Cours</p>");
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/Eleves/1154/cahierdetexte/2026-03-12.awp"),
       {},
       { includeGtk: false },
     );

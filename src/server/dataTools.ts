@@ -6,6 +6,7 @@ import type {
   EdDataService,
   FamilyMessagesResult,
   StudentCahierDeTextesResult,
+  StudentCahierDeTextesDayResult,
   StudentCarnetCorrespondanceResult,
   StudentEmploiDuTempsResult,
   StudentMessagesResult,
@@ -80,6 +81,20 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "get_student_cahier_de_textes tool invoked");
       const result = await data.getStudentCahierDeTextes(args);
       return resultForStudentCahierDeTextes(result);
+    },
+  );
+
+  server.tool(
+    "get_student_cahier_de_textes_day",
+    "Get detailed homework and lesson content for a selected student on a specific date",
+    {
+      ...studentQuerySchema,
+      date: z.string(),
+    },
+    async (args) => {
+      log("info", "get_student_cahier_de_textes_day tool invoked");
+      const result = await data.getStudentCahierDeTextesDay(args);
+      return resultForStudentCahierDeTextesDay(result);
     },
   );
 
@@ -168,6 +183,14 @@ function resultForStudentCahierDeTextes(
   return successResult(summary, result.data);
 }
 
+function resultForStudentCahierDeTextesDay(
+  result: Awaited<ReturnType<EdDataService["getStudentCahierDeTextesDay"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.homeworkCount} homework entries and ${result.data.lessonContentCount} lesson content entries for ${result.data.student.name} on ${result.data.date}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForStudentVieScolaire(
   result: Awaited<ReturnType<EdDataService["getStudentVieScolaire"]>>,
 ) {
@@ -217,6 +240,7 @@ function successResult(
     | ClassVieDeLaClasseResult
     | FamilyMessagesResult
     | StudentCahierDeTextesResult
+    | StudentCahierDeTextesDayResult
     | StudentCarnetCorrespondanceResult
     | StudentEmploiDuTempsResult
     | StudentMessagesResult

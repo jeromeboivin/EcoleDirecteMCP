@@ -1,6 +1,7 @@
 import {
   classVieDeLaClasseUrl,
   familyMessagesUrl,
+  studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
   studentCarnetCorrespondanceUrl,
   studentEmploiDuTempsUrl,
@@ -11,7 +12,9 @@ import {
   type MessageMailbox,
 } from "../api/constants.js";
 import {
+  normalizeCahierDeTextesDayResponse,
   normalizeCahierDeTextesResponse,
+  type CahierDeTextesDayDetailPayload,
   type CahierDeTextesPayload,
 } from "../api/cahierDeTextes.js";
 import {
@@ -64,6 +67,12 @@ export interface StudentCahierDeTextesQuery {
   accountId?: number;
   studentId?: number;
   date?: string;
+}
+
+export interface StudentCahierDeTextesDayQuery {
+  accountId?: number;
+  studentId?: number;
+  date: string;
 }
 
 export interface StudentVieScolaireQuery {
@@ -155,6 +164,12 @@ export interface StudentCahierDeTextesResult extends CahierDeTextesPayload {
   family: FamilyChoice;
   student: StudentChoice;
   selectedDate?: string;
+}
+
+export interface StudentCahierDeTextesDayResult extends CahierDeTextesDayDetailPayload {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
 }
 
 export interface StudentVieScolaireResult extends VieScolairePayload {
@@ -388,6 +403,44 @@ export class EdDataService {
         days,
         totalAssignments: days.reduce((sum, day) => sum + day.assignments.length, 0),
         ...(selectedDate ? { selectedDate } : {}),
+      },
+    };
+  }
+
+  async getStudentCahierDeTextesDay(
+    query: StudentCahierDeTextesDayQuery,
+  ): Promise<DataResult<StudentCahierDeTextesDayResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const selectedDate = query.date.trim();
+    if (selectedDate.length === 0) {
+      return this.failure(
+        "A cahier de textes date is required. Provide a YYYY-MM-DD date.",
+        true,
+      );
+    }
+
+    const response = await this.fetchData(
+      studentCahierDeTextesDayUrl(selection.data.student.id, selectedDate, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeCahierDeTextesDayResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected cahier de textes day response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        family: summarizeFamily(selection.data.account),
+        student: summarizeStudent(selection.data.account, selection.data.student),
+        ...normalized.data,
       },
     };
   }

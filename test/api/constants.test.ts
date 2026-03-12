@@ -5,6 +5,7 @@ import {
   loginUrl,
   probeUrl,
   classVieDeLaClasseUrl,
+  studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
   studentCarnetCorrespondanceUrl,
   studentEmploiDuTempsUrl,
@@ -97,6 +98,15 @@ describe("studentCahierDeTextesUrl", () => {
     const url = studentCahierDeTextesUrl(1154);
     expect(url).toBe(
       `${API_BASE}/${API_VERSION}/Eleves/1154/cahierdetexte.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("studentCahierDeTextesDayUrl", () => {
+  it("returns the student homework day-detail endpoint", () => {
+    const url = studentCahierDeTextesDayUrl(1154, "2026-03-12");
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/Eleves/1154/cahierdetexte/2026-03-12.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
