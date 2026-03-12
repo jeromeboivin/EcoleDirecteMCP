@@ -108,6 +108,17 @@ export function renewTokenUrl(opts: { version?: string } = {}): string {
   return `${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${v}`;
 }
 
+export function familyDocumentsUrl(opts: { archive?: string; version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const archive = opts.archive ?? "";
+  return `${API_BASE}/${API_VERSION}/familledocuments.awp?archive=${encodeURIComponent(archive)}&verbe=get&v=${v}`;
+}
+
+export function familyInvoicesUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/factures.awp?verbe=get&v=${v}`;
+}
+
 /** Headers the server exposes via CORS that we may need to capture. */
 export const EXPOSED_HEADERS = [
   "X-Token",

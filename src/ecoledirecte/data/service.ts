@@ -1,5 +1,7 @@
 import {
   classVieDeLaClasseUrl,
+  familyDocumentsUrl,
+  familyInvoicesUrl,
   familyMessagesUrl,
   studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
@@ -26,6 +28,14 @@ import {
   normalizeEmploiDuTempsResponse,
   type EmploiDuTempsPayload,
 } from "../api/emploiDuTemps.js";
+import {
+  normalizeFamilyDocumentsResponse,
+  type FamilyDocumentsPayload,
+} from "../api/familyDocuments.js";
+import {
+  normalizeFamilyInvoicesResponse,
+  type FamilyInvoicesPayload,
+} from "../api/familyInvoices.js";
 import { normalizeMessagesResponse, type MessagesPayload } from "../api/messages.js";
 import { normalizeNotesResponse, type NotesPayload } from "../api/notes.js";
 import {
@@ -110,6 +120,14 @@ export interface StudentEmploiDuTempsQuery {
   accountId?: number;
   studentId?: number;
   date?: string;
+}
+
+export interface FamilyDocumentsQuery {
+  accountId?: number;
+}
+
+export interface FamilyInvoicesQuery {
+  accountId?: number;
 }
 
 export interface FamilyChoice {
@@ -221,6 +239,17 @@ export interface StudentEmploiDuTempsResult extends EmploiDuTempsPayload {
   family: FamilyChoice;
   student: StudentChoice;
   selectedDate?: string;
+}
+
+export interface FamilyDocumentsResult extends FamilyDocumentsPayload {
+  scope: "family";
+  family: FamilyChoice;
+  totalDocuments: number;
+}
+
+export interface FamilyInvoicesResult extends FamilyInvoicesPayload {
+  scope: "family";
+  family: FamilyChoice;
 }
 
 export type DataResult<T> = { ok: true; data: T } | DataFailure;
@@ -598,6 +627,69 @@ export class EdDataService {
         family: summarizeFamily(selection.data.account),
         student: summarizeStudent(selection.data.account, selection.data.student),
         class: classSelection.data,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getFamilyDocuments(query: FamilyDocumentsQuery = {}): Promise<DataResult<FamilyDocumentsResult>> {
+    const family = await this.ensureFamilySelection(query.accountId);
+    if (!family.ok) return family;
+
+    const response = await this.fetchData(
+      familyDocumentsUrl({ version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeFamilyDocumentsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected family documents response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const totalDocuments =
+      normalized.data.factures.length +
+      normalized.data.notes.length +
+      normalized.data.viescolaire.length +
+      normalized.data.administratifs.length +
+      normalized.data.inscriptions.length +
+      normalized.data.entreprises.length;
+
+    return {
+      ok: true,
+      data: {
+        scope: "family",
+        family: summarizeFamily(family.data),
+        totalDocuments,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async listFamilyInvoices(query: FamilyInvoicesQuery = {}): Promise<DataResult<FamilyInvoicesResult>> {
+    const family = await this.ensureFamilySelection(query.accountId);
+    if (!family.ok) return family;
+
+    const response = await this.fetchData(
+      familyInvoicesUrl({ version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeFamilyInvoicesResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected family invoices response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "family",
+        family: summarizeFamily(family.data),
         ...normalized.data,
       },
     };

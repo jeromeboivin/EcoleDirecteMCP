@@ -4,6 +4,8 @@ import type {
   ClassVieDeLaClasseResult,
   DataFailure,
   EdDataService,
+  FamilyDocumentsResult,
+  FamilyInvoicesResult,
   FamilyMessagesResult,
   StudentCahierDeTextesResult,
   StudentCahierDeTextesDayResult,
@@ -32,6 +34,28 @@ const studentQuerySchema = {
 };
 
 export function registerDataTools(server: McpServer, data: EdDataService): void {
+  server.tool(
+    "get_family_documents",
+    "Get family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises)",
+    { accountId: z.number().int().positive().optional() },
+    async (args) => {
+      log("info", "get_family_documents tool invoked");
+      const result = await data.getFamilyDocuments(args);
+      return resultForFamilyDocuments(result);
+    },
+  );
+
+  server.tool(
+    "list_family_invoices",
+    "List family-level invoices and signature documents",
+    { accountId: z.number().int().positive().optional() },
+    async (args) => {
+      log("info", "list_family_invoices tool invoked");
+      const result = await data.listFamilyInvoices(args);
+      return resultForFamilyInvoices(result);
+    },
+  );
+
   server.tool(
     "list_family_messages",
     "List family-level messages for the authenticated EcoleDirecte family account",
@@ -172,6 +196,18 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 }
 
+function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getFamilyDocuments"]>>) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.totalDocuments} documents across ${countNonEmptyCategories(result.data)} categories for ${result.data.family.name}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForFamilyInvoices(result: Awaited<ReturnType<EdDataService["listFamilyInvoices"]>>) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.invoices.length} invoices for ${result.data.family.name}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForFamilyMessages(result: Awaited<ReturnType<EdDataService["listFamilyMessages"]>>) {
   if (!result.ok) return failureResult(result);
   const summary = `${result.data.messages.length} family messages for ${result.data.family.name} in ${result.data.mailbox}.`;
@@ -256,10 +292,23 @@ function resultForStudentEmploiDuTemps(
   return successResult(summary, result.data);
 }
 
+function countNonEmptyCategories(data: FamilyDocumentsResult): number {
+  let count = 0;
+  if (data.factures.length > 0) count++;
+  if (data.notes.length > 0) count++;
+  if (data.viescolaire.length > 0) count++;
+  if (data.administratifs.length > 0) count++;
+  if (data.inscriptions.length > 0) count++;
+  if (data.entreprises.length > 0) count++;
+  return count;
+}
+
 function successResult(
   summary: string,
   payload:
     | ClassVieDeLaClasseResult
+    | FamilyDocumentsResult
+    | FamilyInvoicesResult
     | FamilyMessagesResult
     | StudentCahierDeTextesResult
     | StudentCahierDeTextesDayResult

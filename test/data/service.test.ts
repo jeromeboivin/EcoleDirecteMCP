@@ -328,6 +328,31 @@ const emploiDuTempsBody: RawApiResponse = {
   ],
 };
 
+const familyDocumentsBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    factures: [{ id: 1, libelle: "Facture oct 2025", date: "2025-10-01", type: "facture" }],
+    notes: [{ id: 2, libelle: "Bulletin T1", date: "2025-12-15", type: "note" }],
+    viescolaire: [],
+    administratifs: [{ id: 3, libelle: "Attestation", type: "administratif" }],
+    inscriptions: [],
+    entreprises: [],
+    listesPiecesAVerser: [],
+  },
+};
+
+const familyInvoicesBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: [
+    { id: 10, libelle: "Facture octobre 2025", date: "2025-10-01", type: "facture", signatureDemandee: false },
+    { id: 11, libelle: "Facture novembre 2025", date: "2025-11-01", type: "facture" },
+  ],
+};
+
 describe("EdDataService", () => {
   it("accepts successful data responses that omit the message field", async () => {
     const responseWithoutMessage = {
@@ -644,6 +669,62 @@ describe("EdDataService", () => {
     }
     expect(http.postForm).toHaveBeenCalledWith(
       expect.stringContaining("/v3/E/1154/emploidutemps.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("returns family documents grouped by category", async () => {
+    const http = makeHttp([familyDocumentsBody]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getFamilyDocuments();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.family.id).toBe(828);
+      expect(result.data.factures).toHaveLength(1);
+      expect(result.data.notes).toHaveLength(1);
+      expect(result.data.administratifs).toHaveLength(1);
+      expect(result.data.totalDocuments).toBe(3);
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/familledocuments.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("switches account context for family documents when a different accountId is given", async () => {
+    const http = makeHttp([familyDocumentsBody]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getFamilyDocuments({ accountId: 17405 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.family.id).toBe(17405);
+    }
+    expect(auth.switchAccount).toHaveBeenCalledWith(17405);
+  });
+
+  it("returns family invoices as a flat list", async () => {
+    const http = makeHttp([familyInvoicesBody]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listFamilyInvoices();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.family.id).toBe(828);
+      expect(result.data.invoices).toHaveLength(2);
+      expect(result.data.invoices[0]?.libelle).toBe("Facture octobre 2025");
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/factures.awp"),
       {},
       { includeGtk: false },
     );

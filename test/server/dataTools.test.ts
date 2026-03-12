@@ -158,6 +158,29 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         totalEvents: 1,
       },
     }),
+    getFamilyDocuments: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "family",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        factures: [{ id: 1 }],
+        notes: [{ id: 2 }, { id: 3 }],
+        viescolaire: [],
+        administratifs: [{ id: 4 }],
+        inscriptions: [],
+        entreprises: [],
+        listesPiecesAVerser: [],
+        totalDocuments: 4,
+      },
+    }),
+    listFamilyInvoices: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "family",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        invoices: [{ id: 10 }, { id: 11 }],
+      },
+    }),
     ...overrides,
   };
 }
@@ -230,6 +253,8 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("list_student_sessions_rdv")).toBe(true);
     expect(server.handlers.has("get_class_vie_de_la_classe")).toBe(true);
     expect(server.handlers.has("get_student_emploi_du_temps")).toBe(true);
+    expect(server.handlers.has("get_family_documents")).toBe(true);
+    expect(server.handlers.has("list_family_invoices")).toBe(true);
   });
 
   it("registers get_student_cahier_de_textes and passes through arguments", async () => {
@@ -292,5 +317,32 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("timetable events");
     expect(result.content[0].text).toContain("Antonin Boivin");
     expect(data.getStudentEmploiDuTemps).toHaveBeenCalledWith({ studentId: 1154 });
+  });
+
+  it("registers get_family_documents and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_family_documents")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("4 documents");
+    expect(result.content[0].text).toContain("3 categories");
+    expect(result.content[0].text).toContain("Anne Roudier-Boivin");
+    expect(data.getFamilyDocuments).toHaveBeenCalled();
+  });
+
+  it("registers list_family_invoices and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("list_family_invoices")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("2 invoices");
+    expect(result.content[0].text).toContain("Anne Roudier-Boivin");
+    expect(data.listFamilyInvoices).toHaveBeenCalled();
   });
 });

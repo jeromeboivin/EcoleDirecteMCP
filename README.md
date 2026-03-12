@@ -21,6 +21,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Sessions RDV** — returns appointment sessions plus invitee metadata through the authenticated `E/{id}/sessionsRdv.awp` route.
 - **Vie de la classe** — returns class-scoped data through the authenticated `Classes/{classId}/viedelaclasse.awp` route.
 - **Emploi du temps** — returns timetable events grouped by day through the authenticated `E/{id}/emploidutemps.awp` route.
+- **Family documents** — returns family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises) through the authenticated `familledocuments.awp` route.
+- **Family invoices** — lists family-level invoices and signature documents through the authenticated `factures.awp` route.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700).
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -68,6 +70,8 @@ Configure your MCP client to launch this server via stdio:
 | `list_student_sessions_rdv` | List appointment sessions and invitee metadata for a selected student |
 | `get_class_vie_de_la_classe` | Get class-level vie de la classe data for the selected student's class |
 | `get_student_emploi_du_temps` | Get timetable events grouped by day for a selected student |
+| `get_family_documents` | Get family-level documents grouped by category |
+| `list_family_invoices` | List family-level invoices and signature documents |
 | `logout` | Clear the session (keeps saved credentials) |
 | `logout_full` | Clear both session and saved credentials |
 
@@ -153,6 +157,8 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Student sessions RDV** → `POST /v3/E/{studentId}/sessionsRdv.awp?verbe=get&v=4.96.3`
 - **Class vie de la classe** → `POST /v3/Classes/{classId}/viedelaclasse.awp?verbe=get&v=4.96.3`
 - **Student emploi du temps** → `POST /v3/E/{studentId}/emploidutemps.awp?verbe=get&v=4.96.3`
+- **Family documents** → `POST /v3/familledocuments.awp?archive=&verbe=get&v=4.96.3`
+- **Family invoices** → `POST /v3/factures.awp?verbe=get&v=4.96.3`
 - Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
 
 ## Explicitly Out of Scope (v1)
@@ -178,7 +184,7 @@ LOG_LEVEL=debug   # Set for verbose logging (debug|info|warn|error)
 src/
 ├── index.ts                          # stdio entrypoint
 ├── server/tools.ts                   # Auth MCP tool definitions
-├── server/dataTools.ts               # Messaging, notes, homework, school life, and timetable MCP tool definitions
+├── server/dataTools.ts               # Messaging, notes, homework, school life, timetable, documents, and invoices MCP tool definitions
 └── ecoledirecte/
     ├── logging.ts                    # Structured logging with redaction
     ├── api/
@@ -192,7 +198,9 @@ src/
     │   ├── carnetCorrespondance.ts   # Correspondence response normalization
     │   ├── sessionsRdv.ts            # Appointment session response normalization
     │   ├── vieDeLaClasse.ts          # Class-life response normalization
-    │   └── emploiDuTemps.ts          # Timetable response normalization
+    │   ├── emploiDuTemps.ts          # Timetable response normalization
+    │   ├── familyDocuments.ts        # Family documents response normalization
+    │   └── familyInvoices.ts         # Family invoices response normalization
     ├── auth/
     │   ├── types.ts                  # Auth state machine types
     │   ├── service.ts                # Login/TOTP/restore orchestration
