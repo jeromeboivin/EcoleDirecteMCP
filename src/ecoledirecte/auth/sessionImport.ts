@@ -16,12 +16,14 @@
 
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { StoredSession } from "./types.js";
+import type { AccountInfo, StoredSession } from "./types.js";
 
 export interface SessionImportFile {
   token: string;
   cookies: Record<string, string>;
   xGtk?: string;
+  twoFaToken?: string;
+  accounts?: AccountInfo[];
   version?: string;
 }
 
@@ -47,7 +49,31 @@ export async function parseSessionFile(filePath: string): Promise<StoredSession>
     token: file.token,
     cookies: file.cookies,
     xGtk: file.xGtk,
+    twoFaToken: file.twoFaToken,
+    accounts: normalizeAccounts(file.accounts),
     version: file.version ?? "4.96.3",
     savedAt: new Date().toISOString(),
   };
+}
+
+function normalizeAccounts(accounts: unknown): AccountInfo[] | undefined {
+  if (!Array.isArray(accounts)) return undefined;
+  const normalized = accounts.flatMap((account) => {
+    const candidate = account as Record<string, unknown>;
+    if (
+      typeof candidate.id !== "number" ||
+      typeof candidate.type !== "string" ||
+      typeof candidate.name !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      id: candidate.id,
+      type: candidate.type,
+      name: candidate.name,
+      establishment:
+        typeof candidate.establishment === "string" ? candidate.establishment : undefined,
+    }];
+  });
+  return normalized.length > 0 ? normalized : undefined;
 }

@@ -27,6 +27,18 @@ describe("normalizeLoginResponse", () => {
     expect(result.challenge).toEqual({ totp: true, question: "xxx" });
   });
 
+  it("returns doubleauth-required on code 250 when totp is false", () => {
+    const res: RawApiResponse = {
+      ...baseResponse,
+      code: ApiCode.AUTH_2FA,
+      token: "body-token",
+      data: { totp: false },
+    };
+    const result = normalizeLoginResponse(res);
+    expect(result.nextState).toBe("doubleauth-required");
+    expect(result.challenge).toEqual({ totp: false });
+  });
+
   it("returns error on blocked account (516)", () => {
     const res: RawApiResponse = { ...baseResponse, code: ApiCode.BLOCKED };
     const result = normalizeLoginResponse(res);

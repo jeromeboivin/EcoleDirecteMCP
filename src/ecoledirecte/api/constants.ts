@@ -13,14 +13,20 @@ export function loginUrl(opts: { gtk?: boolean; version?: string } = {}): string
   return `${base}?v=${v}`;
 }
 
+export function doubleAuthUrl(opts: { verb: "get" | "post"; version?: string }): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/connexion/doubleauth.awp?verbe=${opts.verb}&v=${v}`;
+}
+
 /**
  * Lightweight "am I still logged in?" probe.
- * Uses the same login.awp route; an authenticated request with a valid
- * X-Token returns code 200 while an expired token returns code 521.
+ * The browser calls this route immediately after successful authentication.
+ * It accepts `data={}` and returns code 200 with the current X-Token when the
+ * session is alive.
  */
 export function probeUrl(opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${API_BASE}/${API_VERSION}/login.awp?v=${v}`;
+  return `${API_BASE}/${API_VERSION}/rdt/sondages.awp?verbe=get&v=${v}`;
 }
 
 /** Headers the server exposes via CORS that we may need to capture. */

@@ -6,8 +6,9 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 
 - **Direct login** — authenticates via the EcoleDirecte private API with the GTK bootstrap + credential POST flow.
 - **TOTP 2FA** — handles the two-factor continuation when the account requires it.
+- **Secure identity question** — handles the non-TOTP double-auth flow that asks the user to answer a verification question, then replays the login with the returned challenge proof.
 - **Session import** — import an existing session from a browser-export JSON file, validated against the live API.
-- **Session validation** — imported and restored sessions are probed before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
+- **Session validation** — imported and restored sessions are probed through `rdt/sondages.awp` before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700).
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -40,6 +41,7 @@ Configure your MCP client to launch this server via stdio:
 |------|-------------|
 | `login` | Authenticate with username and password |
 | `submit_totp` | Complete 2FA with a TOTP code |
+| `submit_doubleauth` | Answer the identity-verification question shown after login |
 | `import_session` | Load a session from a browser-export JSON file and validate it |
 | `auth_status` | Check current authentication state (read-only) |
 | `validate_session` | Validate the current session against the live API |
@@ -53,11 +55,15 @@ To import an existing browser session, create a JSON file with this structure:
 ```json
 {
   "token": "<X-Token value from authenticated requests>",
+  "twoFaToken": "<2FA-Token value from authenticated requests>",
   "cookies": {
     "GTK": "<GTK cookie value>",
     "...": "other cookies"
   },
   "xGtk": "<X-GTK header value>",
+  "accounts": [
+    { "id": 828, "type": "1", "name": "Jane Doe", "establishment": "My School" }
+  ],
   "version": "4.96.3"
 }
 ```
@@ -76,13 +82,14 @@ Then use the `import_session` tool with the file path.
 
 3. **Response handling:**
    - Code `200` → authenticated, token in response.
-   - Code `250` → 2FA required, challenge data in response.
+  - Code `250` with `data.totp=true` → TOTP required.
+  - Code `250` with `data.totp=false` → secure question required; fetch the question with `POST /v3/connexion/doubleauth.awp?verbe=get&v=4.96.3`, submit the chosen answer to `...verbe=post`, then replay `login.awp` with the returned `cn`/`cv` values in both the top-level payload and the `fa` array.
    - Code `505` → invalid credentials.
    - Code `516`/`535` → account blocked.
    - Code `521` → session/token expired.
 
 4. **Session validation (probe):**
-   - Imported and restored sessions are probed with an authenticated POST.
+  - Imported and restored sessions are probed with `POST /v3/rdt/sondages.awp?verbe=get&v=4.96.3` and `data={}`.
    - If the probe returns code `200`, the session is promoted to authenticated.
    - If the probe returns code `521` (expired), the persisted session is cleared and the server falls back to saved credentials if available.
 

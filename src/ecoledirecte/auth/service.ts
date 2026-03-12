@@ -2,25 +2,24 @@
  * Auth orchestration service for EcoleDirecte.
  *
  * Manages the login state machine:
- *   logged-out → (bootstrap + login POST) → authenticated | totp-required | error
+ *   logged-out → (bootstrap + login POST) → authenticated | totp-required | doubleauth-required | error
  *   totp-required → (submit TOTP) → authenticated | error
+ *   doubleauth-required → (submit challenge answer + final login POST) → authenticated | error
  *   session-imported → (validate) → authenticated | error
  *
  * Also handles credential persistence, session save/restore, and logout.
  */
 
 import { EdHttpClient } from "../http/client.js";
-import { loginUrl, probeUrl } from "../api/constants.js";
-import { normalizeLoginResponse, normalizeProbeResponse, type RawApiResponse } from "../api/normalize.js";
+import { doubleAuthUrl, loginUrl, probeUrl } from "../api/constants.js";
+import { ApiCode, normalizeLoginResponse, normalizeProbeResponse, type RawApiResponse } from "../api/normalize.js";
 import type { AuthStore } from "./store.js";
 import type {
   AuthState,
   LoginPayload,
-  StoredCredentials,
   StoredSession,
   AccountInfo,
 } from "./types.js";
-import { redact } from "../logging.js";
 
 export class AuthService {
   private state: AuthState = { status: "logged-out" };
@@ -38,6 +37,7 @@ export class AuthService {
   // ── Direct login ─────────────────────────────────────────────
 
   async login(identifiant: string, motdepasse: string): Promise<AuthState> {
+    this.http.clearAuth();
     this.state = { status: "login-pending" };
 
     // 1. Bootstrap — obtain GTK cookie + header value
@@ -74,16 +74,7 @@ export class AuthService {
 
     switch (result.nextState) {
       case "authenticated": {
-        const accounts = extractAccounts(body);
-        this.http.setToken(result.token!);
-        this.state = {
-          status: "authenticated",
-          token: result.token!,
-          accounts,
-        };
-        await this.persistSession(result.token!);
-        await this.store.saveCredentials({ identifiant, motdepasse });
-        break;
+        return this.completeAuthentication(body, { identifiant, motdepasse });
       }
 
       case "totp-required": {
@@ -95,6 +86,9 @@ export class AuthService {
         };
         break;
       }
+
+      case "doubleauth-required":
+        return this.fetchDoubleAuthChallenge();
 
       default:
         this.state = {
@@ -131,29 +125,90 @@ export class AuthService {
     const result = normalizeLoginResponse(body);
 
     if (result.nextState === "authenticated") {
-      const accounts = extractAccounts(body);
-      this.http.setToken(result.token!);
-      this.state = {
-        status: "authenticated",
-        token: result.token!,
-        accounts,
-      };
-      await this.persistSession(result.token!);
-      if (this.pendingPayload) {
-        await this.store.saveCredentials({
-          identifiant: this.pendingPayload.identifiant,
-          motdepasse: this.pendingPayload.motdepasse,
-        });
-      }
-      this.pendingPayload = undefined;
-    } else {
-      this.state = {
+      return this.completeAuthentication(body, {
+        identifiant: this.pendingPayload.identifiant,
+        motdepasse: this.pendingPayload.motdepasse,
+      });
+    }
+
+    this.state = {
+      status: "error",
+      message: result.message ?? "TOTP verification failed",
+      recoverable: true,
+    };
+
+    return this.state;
+  }
+
+  // ── Secure question continuation ───────────────────────────
+
+  async submitDoubleAuthChoice(choiceIndex: number): Promise<AuthState> {
+    if (this.state.status !== "doubleauth-required" || !this.pendingPayload) {
+      return {
         status: "error",
-        message: result.message ?? "TOTP verification failed",
+        message: "No pending identity verification challenge",
+        recoverable: false,
+      };
+    }
+
+    const choice = this.state.choices[choiceIndex - 1];
+    if (!choice) {
+      return {
+        status: "error",
+        message: `Invalid choice index ${choiceIndex}`,
         recoverable: true,
       };
     }
 
+    const challengeRes = await this.http.postForm(
+      doubleAuthUrl({ verb: "post", version: this.http.version }),
+      { choix: choice.value },
+      { includeGtk: false },
+    );
+    this.http.captureAuthHeaders(challengeRes);
+
+    const challengeBody = (await challengeRes.json()) as RawApiResponse;
+    const challengeData = challengeBody.data as Record<string, unknown> | undefined;
+    const cn = typeof challengeData?.cn === "string" ? challengeData.cn : undefined;
+    const cv = typeof challengeData?.cv === "string" ? challengeData.cv : undefined;
+
+    if (challengeBody.code !== ApiCode.OK || !cn || !cv) {
+      this.state = {
+        status: "error",
+        message: challengeBody.message || "Identity verification failed",
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    const payload: LoginPayload = {
+      ...this.pendingPayload,
+      cn,
+      cv,
+      fa: [{ cn, cv, uniq: false }],
+    };
+
+    const loginRes = await this.http.postForm(
+      loginUrl({ version: this.http.version }),
+      payload as unknown as Record<string, unknown>,
+    );
+    this.http.captureAuthHeaders(loginRes);
+
+    const loginBody = (await loginRes.json()) as RawApiResponse;
+    const result = normalizeLoginResponse(loginBody);
+
+    if (result.nextState === "authenticated") {
+      return this.completeAuthentication(loginBody, {
+        identifiant: this.pendingPayload.identifiant,
+        motdepasse: this.pendingPayload.motdepasse,
+      });
+    }
+
+    this.state = {
+      status: "error",
+      message: result.message ?? "Identity verification failed",
+      recoverable: true,
+    };
     return this.state;
   }
 
@@ -162,11 +217,13 @@ export class AuthService {
   async importSession(session: StoredSession): Promise<AuthState> {
     this.http.loadCookies(session.cookies);
     if (session.xGtk) this.http.setGtk(session.xGtk);
+    if (session.twoFaToken) this.http.setTwoFaToken(session.twoFaToken);
     this.http.setToken(session.token);
 
     this.state = {
       status: "session-imported",
       token: session.token,
+      accounts: session.accounts,
     };
     await this.store.saveSession(session);
 
@@ -189,36 +246,31 @@ export class AuthService {
 
     this.http.setToken(token);
     const url = probeUrl({ version: this.http.version });
-    const res = await this.http.postForm(url, {});
+    const res = await this.http.postForm(url, {}, { includeGtk: false });
     this.http.captureAuthHeaders(res);
 
     const body = (await res.json()) as RawApiResponse;
     const probe = normalizeProbeResponse(body);
 
     if (probe.valid) {
-      // Session alive — promote to authenticated if not already
-      if (probe.token) {
-        this.http.setToken(probe.token);
-      }
+      const resolvedToken = this.getResolvedToken(probe.token ?? token);
       if (this.state.status === "authenticated") {
-        // Token may have rotated; update persisted session
-        await this.persistSession(probe.token ?? token);
+        this.state = { ...this.state, token: resolvedToken };
+        await this.persistSession(resolvedToken, this.state.accounts);
         return this.state;
       }
-      // Imported / restored session → promote to authenticated
-      const accounts = extractAccounts(body);
+      const accounts = this.state.status === "session-imported" ? this.state.accounts ?? [] : [];
       this.state = {
         status: "authenticated",
-        token: probe.token ?? token,
+        token: resolvedToken,
         accounts,
       };
-      await this.persistSession(probe.token ?? token);
+      await this.persistSession(resolvedToken, accounts);
       return this.state;
     }
 
-    // Session invalid — clear the stale persisted session
     await this.store.clearSession();
-    this.http.clearToken();
+    this.http.clearAuth();
 
     // Try saved credentials as fallback
     const creds = await this.store.loadCredentials();
@@ -241,9 +293,13 @@ export class AuthService {
     if (session) {
       this.http.loadCookies(session.cookies);
       if (session.xGtk) this.http.setGtk(session.xGtk);
+      if (session.twoFaToken) this.http.setTwoFaToken(session.twoFaToken);
       this.http.setToken(session.token);
-      this.state = { status: "session-imported", token: session.token };
-      // Validate the restored session against the live API
+      this.state = {
+        status: "session-imported",
+        token: session.token,
+        accounts: session.accounts,
+      };
       return this.validateSession();
     }
 
@@ -282,11 +338,68 @@ export class AuthService {
     return this.http.getToken();
   }
 
-  private async persistSession(token: string): Promise<void> {
+  private async fetchDoubleAuthChallenge(): Promise<AuthState> {
+    const res = await this.http.postForm(
+      doubleAuthUrl({ verb: "get", version: this.http.version }),
+      {},
+      { includeGtk: false },
+    );
+    this.http.captureAuthHeaders(res);
+
+    const body = (await res.json()) as RawApiResponse;
+    const data = body.data as Record<string, unknown> | undefined;
+    const question = decodeBase64String(data?.question);
+    const propositions = Array.isArray(data?.propositions) ? data.propositions : [];
+    const choices = propositions.flatMap((value) => {
+      if (typeof value !== "string") return [];
+      return [{ label: decodeBase64String(value), value }];
+    });
+
+    if (body.code !== ApiCode.OK || !question || choices.length === 0) {
+      this.state = {
+        status: "error",
+        message: body.message || "Unable to fetch identity verification challenge",
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    this.state = {
+      status: "doubleauth-required",
+      question,
+      choices,
+    };
+    return this.state;
+  }
+
+  private async completeAuthentication(
+    body: RawApiResponse,
+    creds: { identifiant: string; motdepasse: string },
+  ): Promise<AuthState> {
+    const token = this.getResolvedToken(body.token);
+    const accounts = extractAccounts(body);
+    this.state = {
+      status: "authenticated",
+      token,
+      accounts,
+    };
+    this.pendingPayload = undefined;
+    await this.persistSession(token, accounts);
+    await this.store.saveCredentials(creds);
+    return this.state;
+  }
+
+  private getResolvedToken(fallback?: string): string {
+    return this.http.getToken() ?? fallback ?? "";
+  }
+
+  private async persistSession(token: string, accounts: AccountInfo[]): Promise<void> {
     const session: StoredSession = {
       token,
       cookies: this.http.getCookies(),
       xGtk: this.http.getGtk(),
+      twoFaToken: this.http.getTwoFaToken(),
+      accounts,
       version: this.http.version,
       savedAt: new Date().toISOString(),
     };
@@ -308,4 +421,9 @@ function extractAccounts(body: RawApiResponse): AccountInfo[] {
     name: `${a.prenom} ${a.nom}`.trim(),
     establishment: a.nomEtablissement,
   }));
+}
+
+function decodeBase64String(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "";
+  return Buffer.from(value, "base64").toString("utf-8");
 }

@@ -49,16 +49,34 @@ describe("EdHttpClient", () => {
     });
   });
 
+  describe("2FA token", () => {
+    it("stores and retrieves the 2FA token", () => {
+      const client = new EdHttpClient();
+      expect(client.getTwoFaToken()).toBeUndefined();
+      client.setTwoFaToken("twofa-123");
+      expect(client.getTwoFaToken()).toBe("twofa-123");
+    });
+
+    it("clears the 2FA token independently", () => {
+      const client = new EdHttpClient();
+      client.setTwoFaToken("twofa-123");
+      client.clearTwoFaToken();
+      expect(client.getTwoFaToken()).toBeUndefined();
+    });
+  });
+
   describe("clearAuth", () => {
-    it("resets cookies, GTK, and token", () => {
+    it("resets cookies, GTK, token, and 2FA token", () => {
       const client = new EdHttpClient();
       client.setCookie("A", "1");
       client.setGtk("gtk-val");
       client.setToken("tok-val");
+      client.setTwoFaToken("twofa-val");
       client.clearAuth();
       expect(client.getCookies()).toEqual({});
       expect(client.getGtk()).toBeUndefined();
       expect(client.getToken()).toBeUndefined();
+      expect(client.getTwoFaToken()).toBeUndefined();
     });
   });
 

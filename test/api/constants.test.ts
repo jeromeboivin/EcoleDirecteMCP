@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { loginUrl, probeUrl, API_BASE, API_VERSION, DEFAULT_APP_VERSION } from "../../src/ecoledirecte/api/constants.js";
+import { doubleAuthUrl, loginUrl, probeUrl, API_BASE, API_VERSION, DEFAULT_APP_VERSION } from "../../src/ecoledirecte/api/constants.js";
 
 describe("loginUrl", () => {
   it("returns bootstrap URL with gtk=1", () => {
@@ -21,11 +21,23 @@ describe("loginUrl", () => {
 describe("probeUrl", () => {
   it("returns default probe URL", () => {
     const url = probeUrl();
-    expect(url).toBe(`${API_BASE}/${API_VERSION}/login.awp?v=${DEFAULT_APP_VERSION}`);
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/rdt/sondages.awp?verbe=get&v=${DEFAULT_APP_VERSION}`);
   });
 
   it("respects custom version", () => {
     const url = probeUrl({ version: "5.0.0" });
-    expect(url).toBe(`${API_BASE}/${API_VERSION}/login.awp?v=5.0.0`);
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/rdt/sondages.awp?verbe=get&v=5.0.0`);
+  });
+});
+
+describe("doubleAuthUrl", () => {
+  it("returns the get endpoint", () => {
+    const url = doubleAuthUrl({ verb: "get" });
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/connexion/doubleauth.awp?verbe=get&v=${DEFAULT_APP_VERSION}`);
+  });
+
+  it("returns the post endpoint", () => {
+    const url = doubleAuthUrl({ verb: "post", version: "5.0.0" });
+    expect(url).toBe(`${API_BASE}/${API_VERSION}/connexion/doubleauth.awp?verbe=post&v=5.0.0`);
   });
 });

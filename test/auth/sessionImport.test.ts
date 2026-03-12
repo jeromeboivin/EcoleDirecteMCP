@@ -23,6 +23,8 @@ describe("parseSessionFile", () => {
         token: "tok123",
         cookies: { GTK: "abc", other: "xyz" },
         xGtk: "gtk-header",
+        twoFaToken: "twofa-header",
+        accounts: [{ id: 1, type: "1", name: "Jane Doe", establishment: "Lycée" }],
         version: "4.96.3",
       }),
     );
@@ -30,6 +32,8 @@ describe("parseSessionFile", () => {
     expect(result.token).toBe("tok123");
     expect(result.cookies).toEqual({ GTK: "abc", other: "xyz" });
     expect(result.xGtk).toBe("gtk-header");
+    expect(result.twoFaToken).toBe("twofa-header");
+    expect(result.accounts).toEqual([{ id: 1, type: "1", name: "Jane Doe", establishment: "Lycée" }]);
     expect(result.version).toBe("4.96.3");
     expect(result.savedAt).toBeDefined();
   });

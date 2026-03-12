@@ -9,6 +9,7 @@ export type AuthState =
   | LoggedOut
   | LoginPending
   | TotpRequired
+  | DoubleAuthRequired
   | Authenticated
   | SessionImported
   | AuthError;
@@ -29,6 +30,14 @@ export interface TotpRequired {
   totp: boolean;
 }
 
+export interface DoubleAuthRequired {
+  status: "doubleauth-required";
+  /** Decoded verification question presented to the user. */
+  question: string;
+  /** Candidate answers, preserving the encoded values required for submission. */
+  choices: Array<{ label: string; value: string }>;
+}
+
 export interface Authenticated {
   status: "authenticated";
   token: string;
@@ -39,6 +48,7 @@ export interface Authenticated {
 export interface SessionImported {
   status: "session-imported";
   token: string;
+  accounts?: AccountInfo[];
 }
 
 export interface AuthError {
@@ -66,6 +76,8 @@ export interface StoredSession {
   token: string;
   cookies: Record<string, string>;
   xGtk?: string;
+  twoFaToken?: string;
+  accounts?: AccountInfo[];
   version: string;
   savedAt: string; // ISO timestamp
 }

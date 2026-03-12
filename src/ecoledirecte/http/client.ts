@@ -11,6 +11,7 @@ export class EdHttpClient {
   private cookies = new Map<string, string>();
   private xGtk: string | undefined;
   private xToken: string | undefined;
+  private twoFaToken: string | undefined;
   readonly version: string;
 
   constructor(opts: { version?: string } = {}) {
@@ -75,7 +76,39 @@ export class EdHttpClient {
     this.xToken = undefined;
   }
 
+  getTwoFaToken(): string | undefined {
+    return this.twoFaToken;
+  }
+
+  setTwoFaToken(value: string): void {
+    this.twoFaToken = value;
+  }
+
+  clearTwoFaToken(): void {
+    this.twoFaToken = undefined;
+  }
+
   // ── Request helpers ──────────────────────────────────────────
+
+  private commonHeaders(opts: {
+    includeGtk?: boolean;
+    includeToken?: boolean;
+    includeTwoFaToken?: boolean;
+  } = {}): Record<string, string> {
+    const includeGtk = opts.includeGtk ?? true;
+    const includeToken = opts.includeToken ?? true;
+    const includeTwoFaToken = opts.includeTwoFaToken ?? true;
+    const h: Record<string, string> = {
+      "User-Agent": `EcoleDirecteMCP/0.1`,
+      Accept: "application/json, text/plain, */*",
+    };
+    const cookieStr = this.buildCookieHeader();
+    if (cookieStr) h["Cookie"] = cookieStr;
+    if (includeGtk && this.xGtk) h["X-GTK"] = this.xGtk;
+    if (includeToken && this.xToken) h["X-Token"] = this.xToken;
+    if (includeTwoFaToken && this.twoFaToken) h["2FA-Token"] = this.twoFaToken;
+    return h;
+  }
 
   private buildCookieHeader(): string {
     return [...this.cookies.entries()]
@@ -83,23 +116,14 @@ export class EdHttpClient {
       .join("; ");
   }
 
-  private commonHeaders(): Record<string, string> {
-    const h: Record<string, string> = {
-      "User-Agent": `EcoleDirecteMCP/0.1`,
-      Accept: "application/json, text/plain, */*",
-    };
-    const cookieStr = this.buildCookieHeader();
-    if (cookieStr) h["Cookie"] = cookieStr;
-    if (this.xGtk) h["X-GTK"] = this.xGtk;
-    if (this.xToken) h["X-Token"] = this.xToken;
-    return h;
-  }
-
   /** Plain GET with cookie + GTK headers. */
-  async get(url: string): Promise<Response> {
+  async get(
+    url: string,
+    opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean } = {},
+  ): Promise<Response> {
     return fetch(url, {
       method: "GET",
-      headers: this.commonHeaders(),
+      headers: this.commonHeaders(opts),
       redirect: "manual",
     });
   }
@@ -108,12 +132,16 @@ export class EdHttpClient {
    * POST with the `data=<json>` form-urlencoded wrapper the API expects.
    * The caller passes a plain object; we JSON-stringify and wrap it.
    */
-  async postForm(url: string, data: Record<string, unknown>): Promise<Response> {
+  async postForm(
+    url: string,
+    data: Record<string, unknown>,
+    opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean } = {},
+  ): Promise<Response> {
     const body = `data=${encodeURIComponent(JSON.stringify(data))}`;
     return fetch(url, {
       method: "POST",
       headers: {
-        ...this.commonHeaders(),
+        ...this.commonHeaders(opts),
         "Content-Type": CONTENT_TYPE_FORM,
       },
       body,
@@ -127,6 +155,8 @@ export class EdHttpClient {
     if (gtk) this.xGtk = gtk;
     const token = res.headers.get("X-Token");
     if (token) this.xToken = token;
+    const twoFaToken = res.headers.get("2FA-Token");
+    if (twoFaToken) this.twoFaToken = twoFaToken;
     this.ingestSetCookieHeaders(res.headers);
   }
 
@@ -135,5 +165,6 @@ export class EdHttpClient {
     this.cookies.clear();
     this.xGtk = undefined;
     this.xToken = undefined;
+    this.twoFaToken = undefined;
   }
 }

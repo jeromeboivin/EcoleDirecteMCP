@@ -28,6 +28,7 @@ function stubAuth(state: AuthState) {
     getState: () => state,
     login: vi.fn().mockResolvedValue(state),
     submitTotp: vi.fn().mockResolvedValue(state),
+    submitDoubleAuthChoice: vi.fn().mockResolvedValue(state),
     importSession: vi.fn().mockResolvedValue(state),
     validateSession: vi.fn().mockResolvedValue(state),
     logout: vi.fn().mockResolvedValue({ status: "logged-out" } as AuthState),
@@ -105,6 +106,26 @@ describe("MCP tool responses", () => {
     expect(result.content[0].text).toContain("Session imported");
   });
 
+  it("auth_status formats doubleauth-required state", async () => {
+    const state: AuthState = {
+      status: "doubleauth-required",
+      question: "Quelle est l'année ?",
+      choices: [
+        { label: "2011", value: "encoded-1" },
+        { label: "2012", value: "encoded-2" },
+      ],
+    };
+    const server = stubServer();
+    const auth = stubAuth(state);
+    registerTools(server as any, auth as any);
+
+    const handler = server.handlers.get("auth_status")!;
+    const result = await handler({});
+
+    expect(result.content[0].text).toContain("Quelle est l'année ?");
+    expect(result.content[0].text).toContain("submit_doubleauth");
+  });
+
   it("validate_session tool is registered and calls service", async () => {
     const state: AuthState = { status: "authenticated", token: "tok", accounts: [] };
     const server = stubServer();
@@ -133,6 +154,23 @@ describe("MCP tool responses", () => {
     const result = await handler({ identifiant: "user", motdepasse: "pass" });
 
     expect(auth.login).toHaveBeenCalledWith("user", "pass");
+    expect(result.content[0].text).toContain("Authenticated");
+  });
+
+  it("submit_doubleauth invokes auth.submitDoubleAuthChoice", async () => {
+    const state: AuthState = {
+      status: "authenticated",
+      token: "tok",
+      accounts: [{ id: 1, type: "E", name: "Test" }],
+    };
+    const server = stubServer();
+    const auth = stubAuth(state);
+    registerTools(server as any, auth as any);
+
+    const handler = server.handlers.get("submit_doubleauth")!;
+    const result = await handler({ choiceIndex: 2 });
+
+    expect(auth.submitDoubleAuthChoice).toHaveBeenCalledWith(2);
     expect(result.content[0].text).toContain("Authenticated");
   });
 

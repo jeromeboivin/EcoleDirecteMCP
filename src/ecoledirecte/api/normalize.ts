@@ -8,6 +8,8 @@
 
 import type { AuthState } from "../auth/types.js";
 
+export type LoginNextState = "authenticated" | "totp-required" | "doubleauth-required" | "error";
+
 /** Known API status codes observed from reverse engineering. */
 export const ApiCode = {
   OK: 200,
@@ -31,7 +33,7 @@ export interface RawApiResponse {
 
 export interface NormalizedLoginResult {
   /** Next auth state the caller should transition to. */
-  nextState: AuthState["status"];
+  nextState: LoginNextState;
   /** API token when login succeeds. */
   token?: string;
   /** Challenge context when 2FA is required. */
@@ -47,12 +49,14 @@ export function normalizeLoginResponse(raw: RawApiResponse): NormalizedLoginResu
     case ApiCode.OK:
       return { nextState: "authenticated", token: raw.token, raw };
 
-    case ApiCode.AUTH_2FA:
+    case ApiCode.AUTH_2FA: {
+      const challenge = (raw.data as Record<string, unknown>) ?? {};
       return {
-        nextState: "totp-required",
-        challenge: (raw.data as Record<string, unknown>) ?? {},
+        nextState: challenge.totp === true ? "totp-required" : "doubleauth-required",
+        challenge,
         raw,
       };
+    }
 
     case ApiCode.BLOCKED:
     case ApiCode.BLOCKED_ALT:

@@ -33,6 +33,18 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     },
   );
 
+  // ── submit_doubleauth ───────────────────────────────────────
+  server.tool(
+    "submit_doubleauth",
+    "Submit the choice index for the identity-verification question shown after login",
+    { choiceIndex: z.number().int().positive() },
+    async ({ choiceIndex }) => {
+      log("info", "submit_doubleauth tool invoked");
+      const state = await auth.submitDoubleAuthChoice(choiceIndex);
+      return toolResult(state);
+    },
+  );
+
   // ── import_session ───────────────────────────────────────────
   server.tool(
     "import_session",
@@ -116,6 +128,10 @@ function formatState(state: ReturnType<AuthService["getState"]>): string {
       return "Login in progress…";
     case "totp-required":
       return `Two-factor authentication required (TOTP: ${state.totp}). Use submit_totp with your code.`;
+    case "doubleauth-required":
+      return `${state.question} Choices: ${state.choices
+        .map((choice, index) => `${index + 1}. ${choice.label}`)
+        .join(", ")}. Use submit_doubleauth with your choiceIndex.`;
     case "authenticated":
       return `Authenticated. Accounts: ${state.accounts.map((a) => `${a.name} (${a.type})`).join(", ") || "none parsed"}`;
     case "session-imported":
