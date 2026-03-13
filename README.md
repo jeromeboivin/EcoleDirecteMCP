@@ -15,7 +15,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Student notes** — returns period summaries and grade rows through the authenticated `eleves/{id}/notes.awp` route.
 - **Student profile** — returns student identity and class metadata through the authenticated `eleves/{id}.awp` route.
 - **Cahier de textes** — returns homework grouped by day through the authenticated `Eleves/{id}/cahierdetexte.awp` route.
-- **Cahier de textes detail** — returns decoded homework content and lesson content for a selected day through the authenticated `Eleves/{id}/cahierdetexte/{date}.awp` route.
+- **Cahier de textes detail** — returns decoded homework content, lesson content, and typed attachment metadata for a selected day through the authenticated `Eleves/{id}/cahierdetexte/{date}.awp` route.
+- **Cahier de textes attachment download** — downloads a selected homework or lesson attachment when the day-detail payload exposes either a direct file URL or telechargement-backed file identifiers.
 - **Vie scolaire** — returns absences, dispenses, sanctions, and settings through the authenticated `eleves/{id}/viescolaire.awp` route.
 - **Carnet de correspondance** — lists correspondence entries and follow-ups through the authenticated `eleves/{id}/eleveCarnetCorrespondance.awp` route.
 - **Sessions RDV** — returns appointment sessions plus invitee metadata through the authenticated `E/{id}/sessionsRdv.awp` route.
@@ -65,6 +66,7 @@ Configure your MCP client to launch this server via stdio:
 | `get_student_profile` | Get identity and class metadata for a selected student |
 | `get_student_cahier_de_textes` | Get student homework grouped by day for a selected student |
 | `get_student_cahier_de_textes_day` | Get decoded homework content and lesson content for a selected student on a specific date |
+| `download_student_cahier_de_textes_attachment` | Download a selected homework or lesson attachment from a student cahier de textes day detail |
 | `get_student_vie_scolaire` | Get student absences, dispenses, sanctions, and settings |
 | `list_student_carnet_correspondance` | List carnet de correspondance entries for a selected student |
 | `list_student_sessions_rdv` | List appointment sessions and invitee metadata for a selected student |
@@ -151,7 +153,8 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Student notes** → `POST /v3/eleves/{studentId}/notes.awp?verbe=get&v=4.96.3`
 - **Student profile** → `POST /v3/eleves/{studentId}.awp?verbe=get&v=4.96.3` with `data={"anneeScolaire":""}`
 - **Student cahier de textes** → `POST /v3/Eleves/{studentId}/cahierdetexte.awp?verbe=get&v=4.96.3`
-- **Student cahier de textes day detail** → `POST /v3/Eleves/{studentId}/cahierdetexte/{date}.awp?verbe=get&v=4.96.3`
+- **Student cahier de textes day detail** → `POST /v3/Eleves/{studentId}/cahierdetexte/{date}.awp?verbe=get&v=4.96.3` with decoded `aFaire.contenu`, decoded `contenuDeSeance.contenu`, plus attachment arrays such as `documents`, `ressourceDocuments`, and `documentsRendus`
+- **Student cahier de textes attachment file download** → `GET /v3/telechargement.awp?verbe=get&fichierId={fileId}&leTypeDeFichier={fileType}&v=4.96.3`; homework attachments observed in the live student UI use `leTypeDeFichier=FICHIER_CDT`
 - **Student vie scolaire** → `POST /v3/eleves/{studentId}/viescolaire.awp?verbe=get&v=4.96.3`
 - **Student carnet de correspondance** → `POST /v3/eleves/{studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=4.96.3`
 - **Student sessions RDV** → `POST /v3/E/{studentId}/sessionsRdv.awp?verbe=get&v=4.96.3`

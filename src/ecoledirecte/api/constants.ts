@@ -119,6 +119,20 @@ export function familyInvoicesUrl(opts: { version?: string } = {}): string {
   return `${API_BASE}/${API_VERSION}/factures.awp?verbe=get&v=${v}`;
 }
 
+export function telechargementUrl(
+  opts: { fileId: string | number; fileType: string; cToken?: string; version?: string },
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const params = new URLSearchParams({
+    verbe: "get",
+    fichierId: String(opts.fileId),
+    leTypeDeFichier: opts.fileType,
+    v,
+  });
+  if (opts.cToken) params.set("cToken", opts.cToken);
+  return `${API_BASE}/${API_VERSION}/telechargement.awp?${params.toString()}`;
+}
+
 /** Headers the server exposes via CORS that we may need to capture. */
 export const EXPOSED_HEADERS = [
   "X-Token",

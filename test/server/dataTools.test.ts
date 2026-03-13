@@ -102,6 +102,24 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         lessonContentCount: 1,
       },
     }),
+    downloadStudentCahierDeTextesAttachment: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "student",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        student: { id: 1154, name: "Antonin Boivin", classId: 18, className: "3B", classCode: "3B", accountId: 828, accountName: "Anne Roudier-Boivin" },
+        date: "2026-03-12",
+        subject: "ESPAGNOL LV2",
+        homeworkId: 4579,
+        attachmentKind: "homework-document",
+        attachmentIndex: 0,
+        attachment: { name: "Lexique.pdf", url: "https://doc1.ecoledirecte.com/lexique.pdf" },
+        fileName: "Lexique.pdf",
+        mimeType: "application/pdf",
+        contentLength: 3,
+        contentBase64: "UERG",
+      },
+    }),
     getStudentVieScolaire: vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -248,6 +266,7 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("get_student_profile")).toBe(true);
     expect(server.handlers.has("get_student_cahier_de_textes")).toBe(true);
     expect(server.handlers.has("get_student_cahier_de_textes_day")).toBe(true);
+    expect(server.handlers.has("download_student_cahier_de_textes_attachment")).toBe(true);
     expect(server.handlers.has("get_student_vie_scolaire")).toBe(true);
     expect(server.handlers.has("list_student_carnet_correspondance")).toBe(true);
     expect(server.handlers.has("list_student_sessions_rdv")).toBe(true);
@@ -292,6 +311,31 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("homework entries and 1 lesson content entries");
     expect(result.content[0].text).toContain("2026-03-12");
     expect(data.getStudentCahierDeTextesDay).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
+  });
+
+  it("registers download_student_cahier_de_textes_attachment and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("download_student_cahier_de_textes_attachment")!({
+      studentId: 1154,
+      date: "2026-03-12",
+      homeworkId: 4579,
+      attachmentKind: "homework-document",
+      attachmentIndex: 0,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Downloaded homework-document Lexique.pdf");
+    expect(result.content[0].text).toContain("Antonin Boivin");
+    expect(data.downloadStudentCahierDeTextesAttachment).toHaveBeenCalledWith({
+      studentId: 1154,
+      date: "2026-03-12",
+      homeworkId: 4579,
+      attachmentKind: "homework-document",
+      attachmentIndex: 0,
+    });
   });
 
   it("registers get_class_vie_de_la_classe and summarizes empty responses", async () => {

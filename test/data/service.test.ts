@@ -5,17 +5,32 @@ import type { EdHttpClient } from "../../src/ecoledirecte/http/client.js";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
 
 function makeResponse(body: RawApiResponse): Response {
-  return {
-    json: () => Promise.resolve(body),
-    headers: new Headers(),
-  } as unknown as Response;
+  return new Response(JSON.stringify(body), {
+    headers: { "content-type": "application/json" },
+  });
 }
 
-function makeHttp(responses: RawApiResponse[]): EdHttpClient {
+function makeDownloadResponse(
+  body: Uint8Array | string,
+  init: { headers?: Record<string, string>; status?: number } = {},
+): Response {
+  return new Response(body, {
+    status: init.status ?? 200,
+    headers: init.headers,
+  });
+}
+
+function makeHttp(responses: RawApiResponse[], downloadResponses: Response[] = []): EdHttpClient {
   let index = 0;
+  let downloadIndex = 0;
   return {
     version: "4.96.3",
     postForm: vi.fn().mockImplementation(() => Promise.resolve(makeResponse(responses[index++] ?? responses[responses.length - 1]))),
+    get: vi.fn().mockImplementation(() => Promise.resolve(
+      downloadResponses[downloadIndex++]
+        ?? downloadResponses[downloadResponses.length - 1]
+        ?? makeDownloadResponse("", { status: 404 }),
+    )),
     captureAuthHeaders: vi.fn(),
   } as unknown as EdHttpClient;
 }
@@ -219,6 +234,52 @@ const cahierDeTextesDayBody: RawApiResponse = {
           idDevoir: 4579,
           contenu: "PHA+Q291cnM8L3A+",
           documents: [],
+          elementsProg: [],
+          liensManuel: [],
+        },
+      },
+    ],
+  },
+};
+
+const cahierDeTextesDayWithAttachmentsBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    date: "2026-03-12",
+    matieres: [
+      {
+        matiere: "ESPAGNOL LV2",
+        codeMatiere: "ESP2",
+        nomProf: "Mme LADAVIERE V.",
+        id: 4579,
+        interrogation: false,
+        blogActif: false,
+        nbJourMaxRenduDevoir: 0,
+        aFaire: {
+          idDevoir: 4579,
+          contenu: "PHA+RGV2b2lyPC9wPg==",
+          rendreEnLigne: false,
+          donneLe: "2026-03-02",
+          effectue: true,
+          ressource: "",
+          documentsRendusDeposes: false,
+          ressourceDocuments: [{ libelle: "audio.mp3", url: "//doc1.ecoledirecte.com/audio.mp3", type: "audio/mpeg" }],
+          documents: [
+            { libelle: "Lexique.pdf", urlFichier: "https://doc1.ecoledirecte.com/lexique.pdf", unc: "unc-lexique" },
+            { fichierId: 2489, leTypeDeFichier: "FICHIER_CDT", libelle: "BILAN TrimII.docx" },
+          ],
+          elementsProg: [],
+          liensManuel: [],
+          documentsRendus: [{ libelle: "Rendu.txt", urlFichier: "/piecejointe/rendu.txt" }],
+          tags: [],
+          cdtPersonnalises: [],
+        },
+        contenuDeSeance: {
+          idDevoir: 4579,
+          contenu: "PHA+Q291cnM8L3A+",
+          documents: [{ libelle: "Cours.pdf", href: "https://doc1.ecoledirecte.com/cours.pdf" }],
           elementsProg: [],
           liensManuel: [],
         },
@@ -573,6 +634,95 @@ describe("EdDataService", () => {
       {},
       { includeGtk: false },
     );
+  });
+
+  it("downloads a selected cahier de textes attachment when a direct URL is available", async () => {
+    const http = makeHttp(
+      [cahierDeTextesDayWithAttachmentsBody],
+      [makeDownloadResponse("PDF", {
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": 'attachment; filename="Lexique.pdf"',
+        },
+      })],
+    );
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.downloadStudentCahierDeTextesAttachment({
+      studentId: 1154,
+      date: "2026-03-12",
+      homeworkId: 4579,
+      attachmentKind: "homework-document",
+      attachmentIndex: 0,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.subject).toBe("ESPAGNOL LV2");
+      expect(result.data.fileName).toBe("Lexique.pdf");
+      expect(result.data.mimeType).toBe("application/pdf");
+      expect(result.data.contentLength).toBe(3);
+      expect(result.data.contentBase64).toBe(Buffer.from("PDF").toString("base64"));
+      expect(result.data.attachment.url).toBe("https://doc1.ecoledirecte.com/lexique.pdf");
+    }
+    expect(http.get).toHaveBeenCalledWith(
+      "https://doc1.ecoledirecte.com/lexique.pdf",
+      { includeGtk: false },
+    );
+  });
+
+  it("downloads a selected cahier de textes attachment through telechargement when only file identifiers are available", async () => {
+    const http = makeHttp(
+      [cahierDeTextesDayWithAttachmentsBody],
+      [makeDownloadResponse("DOCX", {
+        headers: {
+          "content-type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          "content-disposition": 'attachment; filename="BILAN TrimII.docx"',
+        },
+      })],
+    );
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.downloadStudentCahierDeTextesAttachment({
+      studentId: 1154,
+      date: "2026-03-12",
+      homeworkId: 4579,
+      attachmentKind: "homework-document",
+      attachmentIndex: 1,
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.subject).toBe("ESPAGNOL LV2");
+      expect(result.data.fileName).toBe("BILAN TrimII.docx");
+      expect(result.data.mimeType).toBe("application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      expect(result.data.contentLength).toBe(4);
+      expect(result.data.contentBase64).toBe(Buffer.from("DOCX").toString("base64"));
+      expect(result.data.attachment.id).toBe(2489);
+      expect(result.data.attachment.downloadId).toBe("2489");
+      expect(result.data.attachment.type).toBe("FICHIER_CDT");
+    }
+    expect(http.get).toHaveBeenCalledWith(
+      "https://api.ecoledirecte.com/v3/telechargement.awp?verbe=get&fichierId=2489&leTypeDeFichier=FICHIER_CDT&v=4.96.3",
+      { includeGtk: false },
+    );
+  });
+
+  it("returns an actionable error when the selected cahier de textes attachment is missing", async () => {
+    const service = new EdDataService(makeHttp([cahierDeTextesDayBody]), makeAuth(authenticatedState) as any);
+
+    const result = await service.downloadStudentCahierDeTextesAttachment({
+      studentId: 1154,
+      date: "2026-03-12",
+      homeworkId: 4579,
+      attachmentKind: "homework-document",
+      attachmentIndex: 0,
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("Unknown attachmentIndex");
+    }
   });
 
   it("returns normalized vie scolaire data", async () => {

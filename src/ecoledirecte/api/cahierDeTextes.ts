@@ -24,10 +24,23 @@ export interface CahierDeTextesPayload {
   totalAssignments: number;
 }
 
+export interface CahierDeTextesAttachment {
+  id?: number;
+  downloadId?: string;
+  name?: string;
+  type?: string;
+  url?: string;
+  unc?: string;
+  cToken?: string;
+  mimeType?: string;
+  extension?: string;
+  size?: number;
+}
+
 export interface CahierDeTextesDayLessonContent {
   lessonId?: number;
   html?: string;
-  documents: Array<Record<string, unknown>>;
+  documents: CahierDeTextesAttachment[];
   curriculumElements: Array<Record<string, unknown>>;
   manualLinks: Array<Record<string, unknown>>;
 }
@@ -40,11 +53,11 @@ export interface CahierDeTextesDayHomeworkDetail {
   completed: boolean;
   resource?: string;
   submittedDocumentsUploaded: boolean;
-  resourceDocuments: Array<Record<string, unknown>>;
-  documents: Array<Record<string, unknown>>;
+  resourceDocuments: CahierDeTextesAttachment[];
+  documents: CahierDeTextesAttachment[];
   curriculumElements: Array<Record<string, unknown>>;
   manualLinks: Array<Record<string, unknown>>;
-  submittedDocuments: Array<Record<string, unknown>>;
+  submittedDocuments: CahierDeTextesAttachment[];
   tags: string[];
   personalizedAssignments: Array<Record<string, unknown>>;
 }
@@ -214,11 +227,11 @@ function normalizeHomeworkDetail(value: unknown): CahierDeTextesDayHomeworkDetai
     completed: asBooleanLike(homework?.effectue) ?? false,
     ...(asString(homework?.ressource) ? { resource: asString(homework?.ressource) } : {}),
     submittedDocumentsUploaded: asBooleanLike(homework?.documentsRendusDeposes) ?? false,
-    resourceDocuments: normalizeRecordArray(homework?.ressourceDocuments),
-    documents: normalizeRecordArray(homework?.documents),
+    resourceDocuments: normalizeAttachmentArray(homework?.ressourceDocuments),
+    documents: normalizeAttachmentArray(homework?.documents),
     curriculumElements: normalizeRecordArray(homework?.elementsProg),
     manualLinks: normalizeRecordArray(homework?.liensManuel),
-    submittedDocuments: normalizeRecordArray(homework?.documentsRendus),
+    submittedDocuments: normalizeAttachmentArray(homework?.documentsRendus),
     tags: normalizeTags(homework?.tags),
     personalizedAssignments: normalizeRecordArray(homework?.cdtPersonnalises),
   };
@@ -230,7 +243,7 @@ function normalizeLessonContent(value: unknown): CahierDeTextesDayLessonContent 
 
   const lessonId = asNumber(content?.idDevoir);
   const html = decodeBase64ToUtf8(asString(content?.contenu));
-  const documents = normalizeRecordArray(content?.documents);
+  const documents = normalizeAttachmentArray(content?.documents);
   const curriculumElements = normalizeRecordArray(content?.elementsProg);
   const manualLinks = normalizeRecordArray(content?.liensManuel);
 
@@ -247,6 +260,77 @@ function normalizeLessonContent(value: unknown): CahierDeTextesDayLessonContent 
   };
 }
 
+function normalizeAttachmentArray(value: unknown): CahierDeTextesAttachment[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => normalizeAttachment(entry));
+}
+
+function normalizeAttachment(value: unknown): CahierDeTextesAttachment[] {
+  const attachment = asRecord(value);
+  if (!attachment) return [];
+
+  const id = asNumber(attachment.id)
+    ?? asNumber(attachment.fichierId)
+    ?? asNumber(attachment.idFichier)
+    ?? asNumber(attachment.fileId);
+  const downloadId = asString(attachment.fichierId)
+    ?? asString(attachment.idFichier)
+    ?? asString(attachment.fileId)
+    ?? asString(attachment.downloadId)
+    ?? (id !== undefined ? String(id) : undefined);
+  const url = normalizeAttachmentUrl(
+    asString(attachment.urlFichier)
+      ?? asString(attachment.url)
+      ?? asString(attachment.href)
+      ?? asString(attachment.lien),
+  );
+  const name = asString(attachment.libelle)
+    ?? asString(attachment.displayText)
+    ?? asString(attachment.nom)
+    ?? asString(attachment.name)
+    ?? asString(attachment.fileName)
+    ?? asString(attachment.filename)
+    ?? inferNameFromUrl(url);
+  const type = asString(attachment.leTypeDeFichier)
+    ?? asString(attachment.typeFichier)
+    ?? asString(attachment.type)
+    ?? asString(attachment.fileType)
+    ?? asString(attachment.categorie);
+  const unc = asString(attachment.unc);
+  const cToken = asString(attachment.cToken) ?? asString(attachment.ctoken);
+  const mimeType = asString(attachment.mimeType) ?? asString(attachment.contentType);
+  const extension = asString(attachment.extension);
+  const size = asNumber(attachment.taille) ?? asNumber(attachment.size) ?? asNumber(attachment.poids);
+
+  if (
+    id === undefined
+    && downloadId === undefined
+    && name === undefined
+    && type === undefined
+    && url === undefined
+    && unc === undefined
+    && cToken === undefined
+    && mimeType === undefined
+    && extension === undefined
+    && size === undefined
+  ) {
+    return [];
+  }
+
+  return [{
+    ...(id !== undefined ? { id } : {}),
+    ...(downloadId ? { downloadId } : {}),
+    ...(name ? { name } : {}),
+    ...(type ? { type } : {}),
+    ...(url ? { url } : {}),
+    ...(unc ? { unc } : {}),
+    ...(cToken ? { cToken } : {}),
+    ...(mimeType ? { mimeType } : {}),
+    ...(extension ? { extension } : {}),
+    ...(size !== undefined ? { size } : {}),
+  }];
+}
+
 function normalizeRecordArray(value: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(value)) return [];
   return value.flatMap((entry) => {
@@ -260,6 +344,24 @@ function decodeBase64ToUtf8(value: string | undefined): string | undefined {
   try {
     const decoded = Buffer.from(value, "base64").toString("utf-8").trim();
     return decoded.length > 0 ? decoded : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizeAttachmentUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (value.startsWith("//")) return `https:${value}`;
+  return value;
+}
+
+function inferNameFromUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+
+  try {
+    const { pathname } = new URL(value, "https://www.ecoledirecte.com");
+    const rawName = pathname.split("/").filter(Boolean).pop();
+    return rawName ? decodeURIComponent(rawName) : undefined;
   } catch {
     return undefined;
   }

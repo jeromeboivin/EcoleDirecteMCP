@@ -5,6 +5,7 @@ import {
   loginUrl,
   probeUrl,
   renewTokenUrl,
+  telechargementUrl,
   classVieDeLaClasseUrl,
   studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
@@ -53,6 +54,27 @@ describe("renewTokenUrl", () => {
   it("returns the default renewtoken URL", () => {
     const url = renewTokenUrl();
     expect(url).toBe(`${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${DEFAULT_APP_VERSION}`);
+  });
+});
+
+describe("telechargementUrl", () => {
+  it("returns the default file download endpoint", () => {
+    const url = telechargementUrl({ fileId: 2489, fileType: "FICHIER_CDT" });
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/telechargement.awp?verbe=get&fichierId=2489&leTypeDeFichier=FICHIER_CDT&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+
+  it("includes cToken and escapes file identifiers when provided", () => {
+    const url = telechargementUrl({
+      fileId: "\\0690587N\\ILM, logo.jpg",
+      fileType: "IMPORT_FTP",
+      cToken: "abc=",
+      version: "5.0.0",
+    });
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/telechargement.awp?verbe=get&fichierId=%5C0690587N%5CILM%2C+logo.jpg&leTypeDeFichier=IMPORT_FTP&v=5.0.0&cToken=abc%3D`,
+    );
   });
 });
 

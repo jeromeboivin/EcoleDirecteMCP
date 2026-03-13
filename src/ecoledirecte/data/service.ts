@@ -11,12 +11,14 @@ import {
   studentNotesUrl,
   studentProfileUrl,
   studentSessionsRdvUrl,
+  telechargementUrl,
   studentVieScolaireUrl,
   type MessageMailbox,
 } from "../api/constants.js";
 import {
   normalizeCahierDeTextesDayResponse,
   normalizeCahierDeTextesResponse,
+  type CahierDeTextesAttachment,
   type CahierDeTextesDayDetailPayload,
   type CahierDeTextesPayload,
 } from "../api/cahierDeTextes.js";
@@ -94,6 +96,21 @@ export interface StudentCahierDeTextesDayQuery {
   accountId?: number;
   studentId?: number;
   date: string;
+}
+
+export type StudentCahierDeTextesAttachmentKind =
+  | "homework-resource"
+  | "homework-document"
+  | "homework-submitted"
+  | "lesson-document";
+
+export interface StudentCahierDeTextesAttachmentQuery {
+  accountId?: number;
+  studentId?: number;
+  date: string;
+  homeworkId: number;
+  attachmentKind: StudentCahierDeTextesAttachmentKind;
+  attachmentIndex: number;
 }
 
 export interface StudentVieScolaireQuery {
@@ -207,6 +224,22 @@ export interface StudentCahierDeTextesDayResult extends CahierDeTextesDayDetailP
   scope: "student";
   family: FamilyChoice;
   student: StudentChoice;
+}
+
+export interface StudentCahierDeTextesAttachmentResult {
+  scope: "student";
+  family: FamilyChoice;
+  student: StudentChoice;
+  date: string;
+  subject: string;
+  homeworkId: number;
+  attachmentKind: StudentCahierDeTextesAttachmentKind;
+  attachmentIndex: number;
+  attachment: CahierDeTextesAttachment;
+  fileName?: string;
+  mimeType?: string;
+  contentLength: number;
+  contentBase64: string;
 }
 
 export interface StudentVieScolaireResult extends VieScolairePayload {
@@ -506,6 +539,108 @@ export class EdDataService {
         ...normalized.data,
       },
     };
+  }
+
+  async downloadStudentCahierDeTextesAttachment(
+    query: StudentCahierDeTextesAttachmentQuery,
+  ): Promise<DataResult<StudentCahierDeTextesAttachmentResult>> {
+    const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
+    if (!selection.ok) return selection;
+
+    const selectedDate = query.date.trim();
+    if (selectedDate.length === 0) {
+      return this.failure(
+        "A cahier de textes date is required. Provide a YYYY-MM-DD date.",
+        true,
+      );
+    }
+
+    if (!Number.isInteger(query.attachmentIndex) || query.attachmentIndex < 0) {
+      return this.failure(
+        "attachmentIndex must be a non-negative integer.",
+        true,
+      );
+    }
+
+    const response = await this.fetchData(
+      studentCahierDeTextesDayUrl(selection.data.student.id, selectedDate, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeCahierDeTextesDayResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected cahier de textes day response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const subject = normalized.data.subjects.find((candidate) => candidate.homeworkId === query.homeworkId);
+    if (!subject) {
+      return this.failure(
+        `Unknown homeworkId ${query.homeworkId} for ${selectedDate}. Retry with get_student_cahier_de_textes_day to inspect available homework entries first.`,
+        true,
+      );
+    }
+
+    const attachments = attachmentsForKind(subject, query.attachmentKind);
+    const attachment = attachments[query.attachmentIndex];
+    if (!attachment) {
+      return this.failure(
+        `Unknown attachmentIndex ${query.attachmentIndex} for ${query.attachmentKind}. Retry with get_student_cahier_de_textes_day to inspect the available attachments first.`,
+        true,
+      );
+    }
+
+    const url = resolveAttachmentDownloadUrl(attachment, this.http.version);
+    if (!url) {
+      return this.failure(
+        `The selected ${query.attachmentKind} attachment does not expose a direct download URL or a telechargement identifier in the day-detail payload. Retry with get_student_cahier_de_textes_day to inspect the attachment metadata.`,
+        true,
+      );
+    }
+
+    try {
+      const download = await this.http.get(url, { includeGtk: false });
+      this.http.captureAuthHeaders(download);
+
+      if (!download.ok) {
+        return this.failure(
+          `Attachment download failed with HTTP ${download.status}.`,
+          true,
+        );
+      }
+
+      const bytes = Buffer.from(await download.arrayBuffer());
+      const mimeType = download.headers.get("content-type") ?? undefined;
+      const fileName = fileNameFromDisposition(download.headers.get("content-disposition"))
+        ?? attachment.name
+        ?? inferFileNameFromUrl(url);
+
+      return {
+        ok: true,
+        data: {
+          scope: "student",
+          family: summarizeFamily(selection.data.account),
+          student: summarizeStudent(selection.data.account, selection.data.student),
+          date: selectedDate,
+          subject: subject.subject,
+          homeworkId: query.homeworkId,
+          attachmentKind: query.attachmentKind,
+          attachmentIndex: query.attachmentIndex,
+          attachment,
+          ...(fileName ? { fileName } : {}),
+          ...(mimeType ? { mimeType } : {}),
+          contentLength: bytes.length,
+          contentBase64: bytes.toString("base64"),
+        },
+      };
+    } catch (error) {
+      return this.failure(
+        `Attachment download failed: ${error instanceof Error ? error.message : String(error)}`,
+        true,
+      );
+    }
   }
 
   async getStudentVieScolaire(
@@ -1019,6 +1154,76 @@ function authFailure(state: AuthState): DataFailure {
 function requiresSessionRefresh(raw: RawApiResponse): boolean {
   const message = typeof raw.message === "string" ? raw.message.toLowerCase() : "";
   return raw.code === ApiCode.EXPIRED_KEY || message.includes("token invalide") || message.includes("session expir");
+}
+
+function attachmentsForKind(
+  subject: StudentCahierDeTextesDayResult["subjects"][number],
+  kind: StudentCahierDeTextesAttachmentKind,
+): CahierDeTextesAttachment[] {
+  switch (kind) {
+    case "homework-resource":
+      return subject.homework?.resourceDocuments ?? [];
+    case "homework-document":
+      return subject.homework?.documents ?? [];
+    case "homework-submitted":
+      return subject.homework?.submittedDocuments ?? [];
+    case "lesson-document":
+      return subject.lessonContent?.documents ?? [];
+  }
+}
+
+function resolveAttachmentUrl(value: string): string {
+  return new URL(value, "https://www.ecoledirecte.com").toString();
+}
+
+function resolveAttachmentDownloadUrl(
+  attachment: CahierDeTextesAttachment,
+  version: string,
+): string | undefined {
+  if (attachment.url) return resolveAttachmentUrl(attachment.url);
+
+  const downloadId = attachment.downloadId ?? (attachment.id !== undefined ? String(attachment.id) : undefined);
+  if (!downloadId) return undefined;
+
+  return telechargementUrl({
+    fileId: downloadId,
+    fileType: resolveAttachmentDownloadType(attachment),
+    ...(attachment.cToken ? { cToken: attachment.cToken } : {}),
+    version,
+  });
+}
+
+function resolveAttachmentDownloadType(attachment: CahierDeTextesAttachment): string {
+  const explicitType = normalizeAttachmentDownloadType(attachment.type);
+  if (explicitType) return explicitType;
+  if (attachment.cToken) return "IMPORT_FTP";
+  return "FICHIER_CDT";
+}
+
+function normalizeAttachmentDownloadType(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return /^[A-Za-z0-9_]+$/.test(trimmed) ? trimmed.toUpperCase() : undefined;
+}
+
+function inferFileNameFromUrl(value: string): string | undefined {
+  try {
+    const pathname = new URL(value).pathname;
+    const rawName = pathname.split("/").filter(Boolean).pop();
+    return rawName ? decodeURIComponent(rawName) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function fileNameFromDisposition(value: string | null): string | undefined {
+  if (!value) return undefined;
+
+  const utf8Match = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (utf8Match?.[1]) return decodeURIComponent(utf8Match[1]);
+
+  const simpleMatch = /filename="?([^";]+)"?/i.exec(value);
+  return simpleMatch?.[1] ? simpleMatch[1] : undefined;
 }
 
 function summarizeFamily(account: AccountInfo): FamilyChoice {

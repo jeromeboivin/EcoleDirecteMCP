@@ -7,6 +7,7 @@ import type {
   FamilyDocumentsResult,
   FamilyInvoicesResult,
   FamilyMessagesResult,
+  StudentCahierDeTextesAttachmentResult,
   StudentCahierDeTextesResult,
   StudentCahierDeTextesDayResult,
   StudentCarnetCorrespondanceResult,
@@ -31,6 +32,19 @@ const messageQuerySchema = {
 const studentQuerySchema = {
   accountId: z.number().int().positive().optional(),
   studentId: z.number().int().positive().optional(),
+};
+
+const cahierDeTextesAttachmentQuerySchema = {
+  ...studentQuerySchema,
+  date: z.string(),
+  homeworkId: z.number().int().positive(),
+  attachmentKind: z.enum([
+    "homework-resource",
+    "homework-document",
+    "homework-submitted",
+    "lesson-document",
+  ]),
+  attachmentIndex: z.number().int().min(0),
 };
 
 export function registerDataTools(server: McpServer, data: EdDataService): void {
@@ -134,6 +148,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "get_student_cahier_de_textes_day tool invoked");
       const result = await data.getStudentCahierDeTextesDay(args);
       return resultForStudentCahierDeTextesDay(result);
+    },
+  );
+
+  server.tool(
+    "download_student_cahier_de_textes_attachment",
+    "Download a selected homework or lesson attachment from a student's cahier de textes day detail",
+    cahierDeTextesAttachmentQuerySchema,
+    async (args) => {
+      log("info", "download_student_cahier_de_textes_attachment tool invoked");
+      const result = await data.downloadStudentCahierDeTextesAttachment(args);
+      return resultForStudentCahierDeTextesAttachment(result);
     },
   );
 
@@ -249,6 +274,15 @@ function resultForStudentCahierDeTextesDay(
   return successResult(summary, result.data);
 }
 
+function resultForStudentCahierDeTextesAttachment(
+  result: Awaited<ReturnType<EdDataService["downloadStudentCahierDeTextesAttachment"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const fileLabel = result.data.fileName ?? result.data.attachment.name ?? `attachment ${result.data.attachmentIndex}`;
+  const summary = `Downloaded ${result.data.attachmentKind} ${fileLabel} for ${result.data.student.name} on ${result.data.date}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForStudentVieScolaire(
   result: Awaited<ReturnType<EdDataService["getStudentVieScolaire"]>>,
 ) {
@@ -310,6 +344,7 @@ function successResult(
     | FamilyDocumentsResult
     | FamilyInvoicesResult
     | FamilyMessagesResult
+    | StudentCahierDeTextesAttachmentResult
     | StudentCahierDeTextesResult
     | StudentCahierDeTextesDayResult
     | StudentCarnetCorrespondanceResult
