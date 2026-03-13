@@ -2,6 +2,7 @@ import {
   classVieDeLaClasseUrl,
   familyDocumentsUrl,
   familyInvoicesUrl,
+  familyMessageDetailUrl,
   familyMessagesUrl,
   studentCahierDeTextesDayUrl,
   studentCahierDeTextesUrl,
@@ -38,7 +39,12 @@ import {
   normalizeFamilyInvoicesResponse,
   type FamilyInvoicesPayload,
 } from "../api/familyInvoices.js";
-import { normalizeMessagesResponse, type MessagesPayload } from "../api/messages.js";
+import {
+  normalizeMessageDetailResponse,
+  normalizeMessagesResponse,
+  type MessageDetailPayload,
+  type MessagesPayload,
+} from "../api/messages.js";
 import { normalizeNotesResponse, type NotesPayload } from "../api/notes.js";
 import {
   normalizeStudentProfileResponse,
@@ -72,6 +78,12 @@ export interface MessageQuery {
 
 export interface StudentMessageQuery extends MessageQuery {
   studentId?: number;
+}
+
+export interface FamilyMessageDetailQuery {
+  accountId?: number;
+  messageId: number;
+  messagesYear?: string;
 }
 
 export interface StudentNotesQuery {
@@ -197,6 +209,12 @@ export interface StudentMessagesResult extends MessagesPayload {
   page: number;
   itemsPerPage: number;
   query: string;
+}
+
+export interface FamilyMessageDetailResult extends MessageDetailPayload {
+  scope: "family";
+  family: FamilyChoice;
+  messagesYear: string;
 }
 
 export interface StudentNotesResult extends NotesPayload {
@@ -375,6 +393,42 @@ export class EdDataService {
         page,
         itemsPerPage,
         query: search,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getFamilyMessageDetail(
+    query: FamilyMessageDetailQuery,
+  ): Promise<DataResult<FamilyMessageDetailResult>> {
+    const family = await this.ensureFamilySelection(query.accountId);
+    if (!family.ok) return family;
+
+    if (!Number.isInteger(query.messageId) || query.messageId <= 0) {
+      return this.failure("messageId must be a positive integer.", true);
+    }
+
+    const messagesYear = normalizeMessagesYear(query.messagesYear);
+    const response = await this.fetchData(
+      familyMessageDetailUrl(family.data.id, query.messageId, { version: this.http.version }),
+      { anneeMessages: messagesYear },
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeMessageDetailResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected message detail response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "family",
+        family: summarizeFamily(family.data),
+        messagesYear,
         ...normalized.data,
       },
     };
@@ -1154,6 +1208,17 @@ function authFailure(state: AuthState): DataFailure {
 function requiresSessionRefresh(raw: RawApiResponse): boolean {
   const message = typeof raw.message === "string" ? raw.message.toLowerCase() : "";
   return raw.code === ApiCode.EXPIRED_KEY || message.includes("token invalide") || message.includes("session expir");
+}
+
+function normalizeMessagesYear(value: string | undefined): string {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : inferCurrentAcademicYear(new Date());
+}
+
+function inferCurrentAcademicYear(now: Date): string {
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  return month >= 7 ? `${year}-${year + 1}` : `${year - 1}-${year}`;
 }
 
 function attachmentsForKind(

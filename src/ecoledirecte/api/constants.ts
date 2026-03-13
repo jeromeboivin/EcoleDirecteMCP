@@ -36,6 +36,16 @@ export function familyMessagesUrl(
   return messagesUrl(`familles/${familyId}`, opts);
 }
 
+export function familyMessageDetailUrl(
+  familyId: number,
+  messageId: number,
+  opts: { mode?: "destinataire" | "expediteur"; version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const mode = opts.mode ?? "destinataire";
+  return `${API_BASE}/${API_VERSION}/familles/${familyId}/messages/${messageId}.awp?verbe=get&mode=${mode}&v=${v}`;
+}
+
 export function studentMessagesUrl(
   studentId: number,
   opts: MessagesUrlOptions = {},

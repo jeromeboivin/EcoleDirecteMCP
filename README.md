@@ -11,6 +11,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Session validation** — imported and restored sessions are probed through `rdt/sondages.awp` before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
 - **Multi-family context switching** — when a session includes browser account metadata, data tools automatically renew the live token context with `renewtoken.awp` before requesting another family account.
 - **Family messagerie** — lists family-level messages through the authenticated `familles/{id}/messages.awp` route.
+- **Family message detail** — opens a selected family message read-only, decodes its content, and mirrors the web UI behavior that may mark it as read.
 - **Student messagerie** — lists student-level messages through the authenticated `eleves/{id}/messages.awp` route.
 - **Student notes** — returns period summaries and grade rows through the authenticated `eleves/{id}/notes.awp` route.
 - **Student profile** — returns student identity and class metadata through the authenticated `eleves/{id}.awp` route.
@@ -61,6 +62,7 @@ Configure your MCP client to launch this server via stdio:
 | `auth_status` | Check current authentication state (read-only) |
 | `validate_session` | Validate the current session against the live API |
 | `list_family_messages` | List family-level messages for the authenticated family account |
+| `get_family_message_detail` | Get the full content of a selected family message (may mark it as read) |
 | `list_student_messages` | List student-level messages for a selected student |
 | `get_student_notes` | Get student notes plus period averages for a selected student |
 | `get_student_profile` | Get identity and class metadata for a selected student |
@@ -149,6 +151,7 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 ## Data Routes (Reverse-Engineered)
 
 - **Family messages** → `POST /v3/familles/{familyId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
+- **Family message detail** → `POST /v3/familles/{familyId}/messages/{messageId}.awp?verbe=get&mode=destinataire&v=4.96.3` with `data={"anneeMessages":"2025-2026"}`; this mirrors opening the message in the UI and can mark it as read
 - **Student messages** → `POST /v3/eleves/{studentId}/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=4.96.3`
 - **Student notes** → `POST /v3/eleves/{studentId}/notes.awp?verbe=get&v=4.96.3`
 - **Student profile** → `POST /v3/eleves/{studentId}.awp?verbe=get&v=4.96.3` with `data={"anneeScolaire":""}`

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   doubleAuthUrl,
+  familyMessageDetailUrl,
   familyMessagesUrl,
   loginUrl,
   probeUrl,
@@ -95,6 +96,15 @@ describe("familyMessagesUrl", () => {
     const url = familyMessagesUrl(828);
     expect(url).toBe(
       `${API_BASE}/${API_VERSION}/familles/828/messages.awp?force=false&typeRecuperation=received&idClasseur=0&orderBy=date&order=desc&query=&onlyRead=&page=0&itemsPerPage=100&getAll=0&verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("familyMessageDetailUrl", () => {
+  it("returns the family message detail endpoint", () => {
+    const url = familyMessageDetailUrl(828, 18213);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/familles/828/messages/18213.awp?verbe=get&mode=destinataire&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });

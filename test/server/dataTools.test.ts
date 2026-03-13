@@ -29,6 +29,32 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         settings: { recipients: {} },
       },
     }),
+    getFamilyMessageDetail: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "family",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        messagesYear: "2025-2026",
+        id: 18213,
+        mailbox: "received",
+        read: true,
+        subject: "Re rappel.",
+        contentHtml: "<div>Bonjour</div>",
+        date: "2026-03-11 06:12:59",
+        draft: false,
+        transferred: false,
+        answered: false,
+        canAnswer: true,
+        folderId: 0,
+        dossierId: -1,
+        responseId: 0,
+        forwardId: 0,
+        from: { id: 16, role: "P", name: "Mme C. JOSEPH" },
+        to: [],
+        attachmentCount: 0,
+        attachments: [],
+      },
+    }),
     listStudentMessages: vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -228,6 +254,25 @@ describe("MCP data tools", () => {
     expect(data.listFamilyMessages).toHaveBeenCalled();
   });
 
+  it("registers get_family_message_detail and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_family_message_detail")!({
+      messageId: 18213,
+      messagesYear: "2025-2026",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain('Loaded family message "Re rappel."');
+    expect(result.content[0].text).toContain("Mme C. JOSEPH");
+    expect(data.getFamilyMessageDetail).toHaveBeenCalledWith({
+      messageId: 18213,
+      messagesYear: "2025-2026",
+    });
+  });
+
   it("registers list_student_messages and passes through arguments", async () => {
     const server = stubServer();
     const data = stubData();
@@ -267,6 +312,7 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("get_student_cahier_de_textes")).toBe(true);
     expect(server.handlers.has("get_student_cahier_de_textes_day")).toBe(true);
     expect(server.handlers.has("download_student_cahier_de_textes_attachment")).toBe(true);
+    expect(server.handlers.has("get_family_message_detail")).toBe(true);
     expect(server.handlers.has("get_student_vie_scolaire")).toBe(true);
     expect(server.handlers.has("list_student_carnet_correspondance")).toBe(true);
     expect(server.handlers.has("list_student_sessions_rdv")).toBe(true);

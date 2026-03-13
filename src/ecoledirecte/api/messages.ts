@@ -76,11 +76,40 @@ export interface MessagesPayload {
   settings: MessagingSettings;
 }
 
+export interface MessageDetailPayload {
+  id: number;
+  mailbox?: MessageMailbox;
+  read: boolean;
+  subject: string;
+  contentHtml?: string;
+  date?: string;
+  draft: boolean;
+  transferred: boolean;
+  answered: boolean;
+  canAnswer: boolean;
+  folderId: number;
+  dossierId: number;
+  responseId?: number;
+  forwardId?: number;
+  from?: MessageParticipant;
+  to: MessageParticipant[];
+  attachmentCount: number;
+  attachments: MessageAttachment[];
+}
+
 export interface NormalizedMessagesResponse {
   ok: boolean;
   code: number;
   raw: RawApiResponse;
   data?: MessagesPayload;
+  message?: string;
+}
+
+export interface NormalizedMessageDetailResponse {
+  ok: boolean;
+  code: number;
+  raw: RawApiResponse;
+  data?: MessageDetailPayload;
   message?: string;
 }
 
@@ -116,6 +145,66 @@ export function normalizeMessagesResponse(
       messages,
       pagination,
       settings,
+    },
+  };
+}
+
+export function normalizeMessageDetailResponse(raw: RawApiResponse): NormalizedMessageDetailResponse {
+  if (raw.code !== ApiCode.OK) {
+    return {
+      ok: false,
+      code: raw.code,
+      raw,
+      message: raw.message || `Unexpected code ${raw.code}`,
+    };
+  }
+
+  const data = asRecord(raw.data);
+  const id = asNumber(data?.id);
+  if (id === undefined) {
+    return {
+      ok: false,
+      code: raw.code,
+      raw,
+      message: "Malformed message detail payload.",
+    };
+  }
+
+  const attachments = Array.isArray(data?.files)
+    ? data.files.flatMap((attachment) => normalizeAttachment(attachment))
+    : [];
+  const mailbox = normalizeMailbox(asString(data?.mtype));
+  const contentHtml = decodeMessageContent(asString(data?.content));
+  const from = normalizeParticipant(data?.from);
+
+  return {
+    ok: true,
+    code: raw.code,
+    raw,
+    data: {
+      id,
+      ...(mailbox ? { mailbox } : {}),
+      read: asBooleanLike(data?.read) ?? false,
+      subject: asString(data?.subject) ?? "",
+      ...(contentHtml ? { contentHtml } : {}),
+      ...(asString(data?.date) ? { date: asString(data?.date) } : {}),
+      draft: asBooleanLike(data?.brouillon) ?? false,
+      transferred: asBooleanLike(data?.transferred) ?? false,
+      answered: asBooleanLike(data?.answered) ?? false,
+      canAnswer: asBooleanLike(data?.canAnswer) ?? false,
+      folderId: asNumber(data?.idClasseur) ?? 0,
+      dossierId: asNumber(data?.idDossier) ?? 0,
+      ...(asNumber(data?.responseId) !== undefined ? { responseId: asNumber(data?.responseId) } : {}),
+      ...(asNumber(data?.forwardId) !== undefined ? { forwardId: asNumber(data?.forwardId) } : {}),
+      ...(from ? { from } : {}),
+      to: Array.isArray(data?.to)
+        ? data.to.flatMap((participant) => {
+            const normalized = normalizeParticipant(participant);
+            return normalized ? [normalized] : [];
+          })
+        : [],
+      attachmentCount: attachments.length,
+      attachments,
     },
   };
 }
@@ -255,6 +344,28 @@ function normalizeAttachment(value: unknown): MessageAttachment[] {
     ...(asString(attachment?.type) ? { type: asString(attachment?.type) } : {}),
     ...(asString(attachment?.unc) ? { unc: asString(attachment?.unc) } : {}),
   }];
+}
+
+function normalizeMailbox(value: string | undefined): MessageMailbox | undefined {
+  if (value === "received" || value === "sent" || value === "archived" || value === "draft") {
+    return value;
+  }
+  return undefined;
+}
+
+function decodeMessageContent(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+
+  const normalized = value.replace(/\s+/g, "");
+  if (normalized.length === 0 || normalized.length % 4 !== 0 || !/^[A-Za-z0-9+/=]+$/.test(normalized)) {
+    return value;
+  }
+
+  try {
+    return Buffer.from(normalized, "base64").toString("utf-8");
+  } catch {
+    return value;
+  }
 }
 
 function normalizeNumberRecord(value: unknown): Record<string, number> {

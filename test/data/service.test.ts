@@ -106,6 +106,40 @@ const messagesBody: RawApiResponse = {
   },
 };
 
+const familyMessageDetailBody: RawApiResponse = {
+  code: ApiCode.OK,
+  token: "",
+  message: "",
+  data: {
+    id: 18213,
+    responseId: 0,
+    forwardId: 0,
+    mtype: "received",
+    read: true,
+    idDossier: -1,
+    idClasseur: 0,
+    transferred: false,
+    answered: false,
+    brouillon: false,
+    canAnswer: true,
+    subject: "Re rappel.",
+    content: "PGRpdj5Cb25qb3VyPC9kaXY+",
+    date: "2026-03-11 06:12:59",
+    to: [],
+    files: [{ id: 9, libelle: "convocation.pdf", unc: "file-9" }],
+    from: {
+      nom: "JOSEPH",
+      prenom: "C.",
+      particule: "",
+      civilite: "Mme",
+      role: "P",
+      id: 16,
+      read: true,
+      fonctionPersonnel: "",
+    },
+  },
+};
+
 const notesBody: RawApiResponse = {
   code: ApiCode.OK,
   token: "",
@@ -474,6 +508,32 @@ describe("EdDataService", () => {
       { includeGtk: false },
     );
     expect(auth.switchAccount).toHaveBeenCalledWith(17405);
+  });
+
+  it("returns full family message content for a selected message", async () => {
+    const http = makeHttp([familyMessageDetailBody]);
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.getFamilyMessageDetail({
+      messageId: 18213,
+      messagesYear: "2025-2026",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.family.id).toBe(828);
+      expect(result.data.messagesYear).toBe("2025-2026");
+      expect(result.data.subject).toBe("Re rappel.");
+      expect(result.data.contentHtml).toBe("<div>Bonjour</div>");
+      expect(result.data.from?.name).toBe("Mme C. JOSEPH");
+      expect(result.data.attachmentCount).toBe(1);
+      expect(result.data.attachments[0]?.name).toBe("convocation.pdf");
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/familles/828/messages/18213.awp?verbe=get&mode=destinataire"),
+      { anneeMessages: "2025-2026" },
+      { includeGtk: false },
+    );
   });
 
   it("returns an actionable error when the student selection is ambiguous", async () => {

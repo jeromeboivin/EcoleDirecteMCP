@@ -6,6 +6,7 @@ import type {
   EdDataService,
   FamilyDocumentsResult,
   FamilyInvoicesResult,
+  FamilyMessageDetailResult,
   FamilyMessagesResult,
   StudentCahierDeTextesAttachmentResult,
   StudentCahierDeTextesResult,
@@ -27,6 +28,12 @@ const messageQuerySchema = {
   query: z.string().optional(),
   page: z.number().int().min(0).optional(),
   itemsPerPage: z.number().int().min(1).max(100).optional(),
+};
+
+const familyMessageDetailQuerySchema = {
+  accountId: z.number().int().positive().optional(),
+  messageId: z.number().int().positive(),
+  messagesYear: z.string().optional(),
 };
 
 const studentQuerySchema = {
@@ -78,6 +85,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "list_family_messages tool invoked");
       const result = await data.listFamilyMessages(args);
       return resultForFamilyMessages(result);
+    },
+  );
+
+  server.tool(
+    "get_family_message_detail",
+    "Get the full content of a selected family message. This mirrors opening the message in EcoleDirecte and may mark it as read.",
+    familyMessageDetailQuerySchema,
+    async (args) => {
+      log("info", "get_family_message_detail tool invoked");
+      const result = await data.getFamilyMessageDetail(args);
+      return resultForFamilyMessageDetail(result);
     },
   );
 
@@ -239,6 +257,15 @@ function resultForFamilyMessages(result: Awaited<ReturnType<EdDataService["listF
   return successResult(summary, result.data);
 }
 
+function resultForFamilyMessageDetail(
+  result: Awaited<ReturnType<EdDataService["getFamilyMessageDetail"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const sender = result.data.from?.name ?? "unknown sender";
+  const summary = `Loaded family message "${result.data.subject}" from ${sender} for ${result.data.family.name}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForStudentMessages(result: Awaited<ReturnType<EdDataService["listStudentMessages"]>>) {
   if (!result.ok) return failureResult(result);
   const summary = `${result.data.messages.length} student messages for ${result.data.student.name} in ${result.data.mailbox}.`;
@@ -343,6 +370,7 @@ function successResult(
     | ClassVieDeLaClasseResult
     | FamilyDocumentsResult
     | FamilyInvoicesResult
+    | FamilyMessageDetailResult
     | FamilyMessagesResult
     | StudentCahierDeTextesAttachmentResult
     | StudentCahierDeTextesResult

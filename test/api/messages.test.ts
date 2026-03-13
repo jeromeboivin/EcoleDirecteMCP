@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
-import { normalizeMessagesResponse } from "../../src/ecoledirecte/api/messages.js";
+import {
+  normalizeMessageDetailResponse,
+  normalizeMessagesResponse,
+} from "../../src/ecoledirecte/api/messages.js";
 
 describe("normalizeMessagesResponse", () => {
   it("normalizes folders, settings, pagination, and message summaries", () => {
@@ -130,5 +133,70 @@ describe("normalizeMessagesResponse", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toBe("Session expirée");
+  });
+
+  it("normalizes a family message detail payload and decodes its content", () => {
+    const raw: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "",
+      message: "",
+      data: {
+        id: 18213,
+        responseId: 0,
+        forwardId: 0,
+        mtype: "received",
+        read: true,
+        idDossier: -1,
+        idClasseur: 0,
+        transferred: false,
+        answered: false,
+        brouillon: false,
+        canAnswer: true,
+        subject: "Re rappel.",
+        content: "PGRpdj5Cb25qb3VyPC9kaXY+",
+        date: "2026-03-11 06:12:59",
+        to: [],
+        files: [{ id: 9, libelle: "convocation.pdf", unc: "file-9" }],
+        from: {
+          nom: "JOSEPH",
+          prenom: "C.",
+          particule: "",
+          civilite: "Mme",
+          role: "P",
+          id: 16,
+          read: true,
+          fonctionPersonnel: "",
+        },
+      },
+    };
+
+    const result = normalizeMessageDetailResponse(raw);
+
+    expect(result.ok).toBe(true);
+    expect(result.data).toEqual({
+      id: 18213,
+      mailbox: "received",
+      read: true,
+      subject: "Re rappel.",
+      contentHtml: "<div>Bonjour</div>",
+      date: "2026-03-11 06:12:59",
+      draft: false,
+      transferred: false,
+      answered: false,
+      canAnswer: true,
+      folderId: 0,
+      dossierId: -1,
+      responseId: 0,
+      forwardId: 0,
+      from: {
+        id: 16,
+        role: "P",
+        name: "Mme C. JOSEPH",
+        read: true,
+      },
+      to: [],
+      attachmentCount: 1,
+      attachments: [{ id: 9, name: "convocation.pdf", unc: "file-9" }],
+    });
   });
 });
