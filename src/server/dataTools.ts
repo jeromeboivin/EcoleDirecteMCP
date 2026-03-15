@@ -5,6 +5,7 @@ import type {
   DataFailure,
   DataResult,
   EdDataService,
+  FamilyDocumentDownloadResult,
   FamilyDocumentsResult,
   FamilyInvoicesResult,
   FamilyMessageDetailResult,
@@ -68,6 +69,19 @@ const cahierDeTextesAttachmentQuerySchema = {
     "lesson-document",
   ]),
   attachmentIndex: z.number().int().min(0),
+};
+
+const familyDocumentDownloadQuerySchema = {
+  accountId: z.number().int().positive().optional(),
+  documentId: z.number().int().positive(),
+  category: z.enum([
+    "factures",
+    "notes",
+    "viescolaire",
+    "administratifs",
+    "inscriptions",
+    "entreprises",
+  ]),
 };
 
 // ── Serialization ──────────────────────────────────────────────
@@ -144,6 +158,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "get_family_documents tool invoked");
       const result = await data.getFamilyDocuments(args);
       return resultForFamilyDocuments(result);
+    }),
+  );
+
+  server.tool(
+    "download_family_document",
+    "Download a family document (bulletin, certificat, facture, etc.) by its id and category. Use get_family_documents first to list available documents.",
+    familyDocumentDownloadQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "download_family_document tool invoked");
+      const result = await data.downloadFamilyDocument(args);
+      return resultForFamilyDocumentDownload(result);
     }),
   );
 
@@ -341,6 +366,13 @@ function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getF
   return successResult(summary, result.data);
 }
 
+function resultForFamilyDocumentDownload(result: Awaited<ReturnType<EdDataService["downloadFamilyDocument"]>>) {
+  if (!result.ok) return failureResult(result);
+  const fileLabel = result.data.fileName ?? result.data.label ?? `document ${result.data.documentId}`;
+  const summary = `Downloaded ${result.data.category} document "${fileLabel}" for ${result.data.family.name}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForFamilyInvoices(result: Awaited<ReturnType<EdDataService["listFamilyInvoices"]>>) {
   if (!result.ok) return failureResult(result);
   const summary = `${result.data.invoices.length} invoices for ${result.data.family.name}.`;
@@ -464,6 +496,7 @@ function successResult(
   summary: string,
   payload:
     | ClassVieDeLaClasseResult
+    | FamilyDocumentDownloadResult
     | FamilyDocumentsResult
     | FamilyInvoicesResult
     | FamilyMessageDetailResult

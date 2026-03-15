@@ -231,6 +231,20 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         { id: 1154, name: "Antonin Boivin", accountId: 828, accountName: "Anne Roudier-Boivin" },
       ],
     }),
+    downloadFamilyDocument: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "family",
+        family: { id: 828, name: "Anne Roudier-Boivin" },
+        documentId: 1373,
+        category: "notes",
+        label: "Bulletin 1er Trimestre",
+        fileName: "Note_A001.pdf",
+        mimeType: "application/force-download",
+        contentLength: 693133,
+        contentBase64: "JVBER...",
+      },
+    }),
     ...overrides,
   };
 }
@@ -427,6 +441,26 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("3 categories");
     expect(result.content[0].text).toContain("Anne Roudier-Boivin");
     expect(data.getFamilyDocuments).toHaveBeenCalled();
+  });
+
+  it("registers download_family_document and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("download_family_document")!({
+      documentId: 1373,
+      category: "notes",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Downloaded notes document");
+    expect(result.content[0].text).toContain("Note_A001.pdf");
+    expect(result.content[0].text).toContain("Anne Roudier-Boivin");
+    expect(data.downloadFamilyDocument).toHaveBeenCalledWith({
+      documentId: 1373,
+      category: "notes",
+    });
   });
 
   it("registers list_family_invoices and formats the summary", async () => {

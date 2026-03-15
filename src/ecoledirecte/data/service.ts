@@ -32,7 +32,10 @@ import {
   type EmploiDuTempsPayload,
 } from "../api/emploiDuTemps.js";
 import {
+  documentDownloadFileType,
   normalizeFamilyDocumentsResponse,
+  type DocumentCategory,
+  type DocumentEntry,
   type FamilyDocumentsPayload,
 } from "../api/familyDocuments.js";
 import {
@@ -153,6 +156,12 @@ export interface StudentEmploiDuTempsQuery {
 
 export interface FamilyDocumentsQuery {
   accountId?: number;
+}
+
+export interface FamilyDocumentDownloadQuery {
+  accountId?: number;
+  documentId: number;
+  category: DocumentCategory;
 }
 
 export interface FamilyInvoicesQuery {
@@ -296,6 +305,18 @@ export interface FamilyDocumentsResult extends FamilyDocumentsPayload {
   scope: "family";
   family: FamilyChoice;
   totalDocuments: number;
+}
+
+export interface FamilyDocumentDownloadResult {
+  scope: "family";
+  family: FamilyChoice;
+  documentId: number;
+  category: DocumentCategory;
+  label?: string;
+  fileName?: string;
+  mimeType?: string;
+  contentLength: number;
+  contentBase64: string;
 }
 
 export interface FamilyInvoicesResult extends FamilyInvoicesPayload {
@@ -855,6 +876,93 @@ export class EdDataService {
         ...normalized.data,
       },
     };
+  }
+
+  async downloadFamilyDocument(
+    query: FamilyDocumentDownloadQuery,
+  ): Promise<DataResult<FamilyDocumentDownloadResult>> {
+    const family = await this.ensureFamilySelection(query.accountId);
+    if (!family.ok) return family;
+
+    if (!Number.isInteger(query.documentId) || query.documentId <= 0) {
+      return this.failure("documentId must be a positive integer.", true);
+    }
+
+    // Fetch the document list to find the entry and validate the id + category
+    const listResponse = await this.fetchData(
+      familyDocumentsUrl({ version: this.http.version }),
+    );
+    if (!listResponse.ok) return listResponse;
+
+    const normalizedList = normalizeFamilyDocumentsResponse(listResponse.data);
+    if (!normalizedList.ok || !normalizedList.data) {
+      return this.failure(
+        normalizedList.message ?? `Unexpected family documents response code ${normalizedList.code}`,
+        true,
+      );
+    }
+
+    const categoryDocs = normalizedList.data[query.category];
+    if (!Array.isArray(categoryDocs)) {
+      return this.failure(`Unknown document category '${query.category}'.`, true);
+    }
+
+    const entry = categoryDocs.find((doc: DocumentEntry) => doc.id === query.documentId);
+    if (!entry) {
+      return this.failure(
+        `Document ${query.documentId} not found in category '${query.category}'. Use get_family_documents to list available documents first.`,
+        true,
+      );
+    }
+
+    const fileType = documentDownloadFileType(query.category, entry);
+    const url = telechargementUrl({
+      fileId: query.documentId,
+      fileType,
+      version: this.http.version,
+    });
+
+    try {
+      const download = await this.http.postForm(
+        url,
+        { forceDownload: 0, archive: false, anneeArchive: "" },
+        { includeGtk: false },
+      );
+      this.http.captureAuthHeaders(download);
+
+      if (!download.ok) {
+        return this.failure(
+          `Document download failed with HTTP ${download.status}.`,
+          true,
+        );
+      }
+
+      const bytes = Buffer.from(await download.arrayBuffer());
+      const mimeType = download.headers.get("content-type") ?? undefined;
+      const fileName = fileNameFromDisposition(download.headers.get("content-disposition"))
+        ?? entry.libelle
+        ?? undefined;
+
+      return {
+        ok: true,
+        data: {
+          scope: "family",
+          family: summarizeFamily(family.data),
+          documentId: query.documentId,
+          category: query.category,
+          ...(entry.libelle ? { label: entry.libelle } : {}),
+          ...(fileName ? { fileName } : {}),
+          ...(mimeType ? { mimeType } : {}),
+          contentLength: bytes.length,
+          contentBase64: bytes.toString("base64"),
+        },
+      };
+    } catch (error) {
+      return this.failure(
+        `Document download failed: ${error instanceof Error ? error.message : String(error)}`,
+        true,
+      );
+    }
   }
 
   async listFamilyInvoices(query: FamilyInvoicesQuery = {}): Promise<DataResult<FamilyInvoicesResult>> {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
-import { normalizeFamilyDocumentsResponse } from "../../src/ecoledirecte/api/familyDocuments.js";
+import {
+  documentDownloadFileType,
+  normalizeFamilyDocumentsResponse,
+  type DocumentCategory,
+  type DocumentEntry,
+} from "../../src/ecoledirecte/api/familyDocuments.js";
 
 describe("normalizeFamilyDocumentsResponse", () => {
   it("normalizes sectioned document categories from a realistic payload", () => {
@@ -54,5 +59,38 @@ describe("normalizeFamilyDocumentsResponse", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toBe("Session expirée");
+  });
+});
+
+describe("documentDownloadFileType", () => {
+  const entry: DocumentEntry = { id: 1, libelle: "test" };
+
+  it("returns 'Note' for notes category", () => {
+    expect(documentDownloadFileType("notes", entry)).toBe("Note");
+  });
+
+  it("returns 'Facture' for factures category", () => {
+    expect(documentDownloadFileType("factures", entry)).toBe("Facture");
+  });
+
+  it("returns 'VieScolaire' for viescolaire category", () => {
+    expect(documentDownloadFileType("viescolaire", entry)).toBe("VieScolaire");
+  });
+
+  it("returns empty string for administratifs category", () => {
+    expect(documentDownloadFileType("administratifs", entry)).toBe("");
+  });
+
+  it("returns entry type for inscriptions category", () => {
+    const inscriptionEntry: DocumentEntry = { id: 42, type: "INSCR_DOC_A_SIGNER" };
+    expect(documentDownloadFileType("inscriptions", inscriptionEntry)).toBe("INSCR_DOC_A_SIGNER");
+  });
+
+  it("returns empty string for inscriptions without type", () => {
+    expect(documentDownloadFileType("inscriptions", entry)).toBe("");
+  });
+
+  it("returns empty string for entreprises category", () => {
+    expect(documentDownloadFileType("entreprises", entry)).toBe("");
   });
 });

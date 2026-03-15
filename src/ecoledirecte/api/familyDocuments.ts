@@ -88,3 +88,42 @@ function asBooleanLike(value: unknown): boolean | undefined {
   if (value === "0" || value === 0) return false;
   return undefined;
 }
+
+/**
+ * Map a document category to the `leTypeDeFichier` query parameter value
+ * the telechargement.awp endpoint expects.
+ *
+ * Observed from Chrome DevTools:
+ * - notes       → "Note"
+ * - factures    → "Facture"
+ * - administratifs → "" (empty)
+ * - viescolaire → "VieScolaire"
+ * - inscriptions → the entry's own `type` field (e.g. INSCR_DOC_A_SIGNER)
+ * - entreprises → "" (empty, best guess — no live sample)
+ */
+export type DocumentCategory =
+  | "factures"
+  | "notes"
+  | "viescolaire"
+  | "administratifs"
+  | "inscriptions"
+  | "entreprises";
+
+export function documentDownloadFileType(
+  category: DocumentCategory,
+  entry: DocumentEntry,
+): string {
+  switch (category) {
+    case "notes":
+      return "Note";
+    case "factures":
+      return "Facture";
+    case "viescolaire":
+      return "VieScolaire";
+    case "inscriptions":
+      return entry.type ?? "";
+    case "administratifs":
+    case "entreprises":
+      return "";
+  }
+}
