@@ -19,7 +19,8 @@ async function main(): Promise<void> {
   log("info", "Starting EcoleDirecte MCP server");
 
   const http = new EdHttpClient();
-  const store = new FileAuthStore();
+  const credentialsFile = process.env.ECOLEDIRECTE_CREDENTIALS_FILE || undefined;
+  const store = new FileAuthStore(credentialsFile ? { credentialsFile } : undefined);
   const auth = new AuthService(http, store);
   const data = new EdDataService(http, auth);
 

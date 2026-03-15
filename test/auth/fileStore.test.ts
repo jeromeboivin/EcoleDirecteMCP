@@ -11,7 +11,7 @@ describe("FileAuthStore", () => {
 
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "ed-test-"));
-    store = new FileAuthStore(dir);
+    store = new FileAuthStore({ dir });
   });
 
   afterEach(async () => {
@@ -19,6 +19,11 @@ describe("FileAuthStore", () => {
   });
 
   const creds: StoredCredentials = { identifiant: "user", motdepasse: "pass" };
+  const credsWithFa: StoredCredentials = {
+    identifiant: "user",
+    motdepasse: "pass",
+    fa: [{ cn: "cn-token", cv: "cv-token", uniq: false }],
+  };
   const session: StoredSession = {
     token: "tok",
     cookies: { GTK: "abc" },
@@ -27,10 +32,33 @@ describe("FileAuthStore", () => {
     savedAt: "2026-01-01T00:00:00.000Z",
   };
 
+  it("uses an explicit credentialsFile path when provided", async () => {
+    const customPath = join(dir, "custom-creds.json");
+    const customStore = new FileAuthStore({ dir, credentialsFile: customPath });
+    await customStore.saveCredentials(creds);
+    const raw = await readFile(customPath, "utf-8");
+    expect(JSON.parse(raw)).toEqual(creds);
+    const loaded = await customStore.loadCredentials();
+    expect(loaded).toEqual(creds);
+  });
+
+  it("defaults credentialsFile to dir/credentials.json", async () => {
+    const defaultStore = new FileAuthStore({ dir });
+    await defaultStore.saveCredentials(creds);
+    const raw = await readFile(join(dir, "credentials.json"), "utf-8");
+    expect(JSON.parse(raw)).toEqual(creds);
+  });
+
   it("round-trips credentials", async () => {
     await store.saveCredentials(creds);
     const loaded = await store.loadCredentials();
     expect(loaded).toEqual(creds);
+  });
+
+  it("round-trips credentials with persisted fa replay data", async () => {
+    await store.saveCredentials(credsWithFa);
+    const loaded = await store.loadCredentials();
+    expect(loaded).toEqual(credsWithFa);
   });
 
   it("round-trips session", async () => {

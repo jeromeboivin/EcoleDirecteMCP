@@ -3,6 +3,7 @@ import { z } from "zod";
 import type {
   ClassVieDeLaClasseResult,
   DataFailure,
+  DataResult,
   EdDataService,
   FamilyDocumentsResult,
   FamilyInvoicesResult,
@@ -21,13 +22,19 @@ import type {
 } from "../ecoledirecte/data/service.js";
 import { log } from "../ecoledirecte/logging.js";
 
-const messageQuerySchema = {
-  accountId: z.number().int().positive().optional(),
+// ── Schemas ────────────────────────────────────────────────────
+
+const messageFieldsSchema = {
   mailbox: z.enum(["received", "sent", "archived", "draft"]).optional(),
   folderId: z.number().int().min(0).optional(),
   query: z.string().optional(),
   page: z.number().int().min(0).optional(),
   itemsPerPage: z.number().int().min(1).max(100).optional(),
+};
+
+const messageQuerySchema = {
+  accountId: z.number().int().positive().optional(),
+  ...messageFieldsSchema,
 };
 
 const familyMessageDetailQuerySchema = {
@@ -36,13 +43,22 @@ const familyMessageDetailQuerySchema = {
   messagesYear: z.string().optional(),
 };
 
-const studentQuerySchema = {
+const studentTargetSchema = z.object({
+  studentId: z.number().int().positive(),
+  accountId: z.number().int().positive().optional(),
+});
+
+const studentsSchema = {
+  students: z.array(studentTargetSchema).optional(),
+};
+
+const singleStudentQuerySchema = {
   accountId: z.number().int().positive().optional(),
   studentId: z.number().int().positive().optional(),
 };
 
 const cahierDeTextesAttachmentQuerySchema = {
-  ...studentQuerySchema,
+  ...singleStudentQuerySchema,
   date: z.string(),
   homeworkId: z.number().int().positive(),
   attachmentKind: z.enum([
@@ -54,188 +70,268 @@ const cahierDeTextesAttachmentQuerySchema = {
   attachmentIndex: z.number().int().min(0),
 };
 
+// ── Serialization ──────────────────────────────────────────────
+
+let pending: Promise<unknown> = Promise.resolve();
+
+function serialize<T>(fn: () => Promise<T>): Promise<T> {
+  const next = pending.then(() => fn());
+  pending = next.then(
+    () => {},
+    () => {},
+  );
+  return next;
+}
+
+// ── Multi-student helpers ──────────────────────────────────────
+
+interface StudentTarget {
+  studentId: number;
+  accountId?: number;
+}
+
+type McpToolResult = {
+  content: Array<{ type: "text"; text: string }>;
+  isError: boolean;
+};
+
+async function resolveStudentTargets(
+  data: EdDataService,
+  students?: StudentTarget[],
+): Promise<DataResult<StudentTarget[]>> {
+  if (students && students.length > 0) {
+    return { ok: true, data: students };
+  }
+  const all = await data.listAllStudents();
+  if (!all.ok) return all;
+  return {
+    ok: true,
+    data: all.data.map((s) => ({ studentId: s.id, accountId: s.accountId })),
+  };
+}
+
+async function forEachStudent(
+  data: EdDataService,
+  students: StudentTarget[] | undefined,
+  callAndFormat: (target: StudentTarget) => Promise<McpToolResult>,
+): Promise<McpToolResult> {
+  const targets = await resolveStudentTargets(data, students);
+  if (!targets.ok) return failureResult(targets);
+
+  const parts: string[] = [];
+  let anySuccess = false;
+
+  for (const target of targets.data) {
+    const result = await callAndFormat(target);
+    parts.push(result.content[0].text);
+    if (!result.isError) anySuccess = true;
+  }
+
+  return {
+    content: [{ type: "text" as const, text: parts.join("\n\n---\n\n") }],
+    isError: !anySuccess,
+  };
+}
+
+// ── Tool registration ──────────────────────────────────────────
+
 export function registerDataTools(server: McpServer, data: EdDataService): void {
   server.tool(
     "get_family_documents",
     "Get family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises)",
     { accountId: z.number().int().positive().optional() },
-    async (args) => {
+    async (args) => serialize(async () => {
       log("info", "get_family_documents tool invoked");
       const result = await data.getFamilyDocuments(args);
       return resultForFamilyDocuments(result);
-    },
+    }),
   );
 
   server.tool(
     "list_family_invoices",
     "List family-level invoices and signature documents",
     { accountId: z.number().int().positive().optional() },
-    async (args) => {
+    async (args) => serialize(async () => {
       log("info", "list_family_invoices tool invoked");
       const result = await data.listFamilyInvoices(args);
       return resultForFamilyInvoices(result);
-    },
+    }),
   );
 
   server.tool(
     "list_family_messages",
     "List family-level messages for the authenticated EcoleDirecte family account",
     messageQuerySchema,
-    async (args) => {
+    async (args) => serialize(async () => {
       log("info", "list_family_messages tool invoked");
       const result = await data.listFamilyMessages(args);
       return resultForFamilyMessages(result);
-    },
+    }),
   );
 
   server.tool(
     "get_family_message_detail",
     "Get the full content of a selected family message. This mirrors opening the message in EcoleDirecte and may mark it as read.",
     familyMessageDetailQuerySchema,
-    async (args) => {
+    async (args) => serialize(async () => {
       log("info", "get_family_message_detail tool invoked");
       const result = await data.getFamilyMessageDetail(args);
       return resultForFamilyMessageDetail(result);
-    },
+    }),
   );
 
   server.tool(
     "list_student_messages",
-    "List student-level messages for an authenticated student account",
-    {
-      ...messageQuerySchema,
-      studentId: z.number().int().positive().optional(),
-    },
-    async (args) => {
+    "List student-level messages for one or more students. Omit students to query all known students sequentially.",
+    { ...studentsSchema, ...messageFieldsSchema },
+    async (args) => serialize(async () => {
       log("info", "list_student_messages tool invoked");
-      const result = await data.listStudentMessages(args);
-      return resultForStudentMessages(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentMessages(
+          await data.listStudentMessages({
+            ...t,
+            mailbox: args.mailbox,
+            folderId: args.folderId,
+            query: args.query,
+            page: args.page,
+            itemsPerPage: args.itemsPerPage,
+          }),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "get_student_notes",
-    "Get student notes and period averages for an authenticated student account",
-    {
-      ...studentQuerySchema,
-      periodCode: z.string().optional(),
-    },
-    async (args) => {
+    "Get student notes and period averages for one or more students. Omit students to query all known students sequentially.",
+    { ...studentsSchema, periodCode: z.string().optional() },
+    async (args) => serialize(async () => {
       log("info", "get_student_notes tool invoked");
-      const result = await data.getStudentNotes(args);
-      return resultForStudentNotes(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentNotes(
+          await data.getStudentNotes({ ...t, periodCode: args.periodCode }),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "get_student_profile",
-    "Get identity and class metadata for an authenticated student account",
-    {
-      ...studentQuerySchema,
-      schoolYear: z.string().optional(),
-    },
-    async (args) => {
+    "Get identity and class metadata for one or more students. Omit students to query all known students sequentially.",
+    { ...studentsSchema, schoolYear: z.string().optional() },
+    async (args) => serialize(async () => {
       log("info", "get_student_profile tool invoked");
-      const result = await data.getStudentProfile(args);
-      return resultForStudentProfile(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentProfile(
+          await data.getStudentProfile({ ...t, schoolYear: args.schoolYear }),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "get_student_cahier_de_textes",
-    "Get student homework grouped by day for an authenticated student account",
-    {
-      ...studentQuerySchema,
-      date: z.string().optional(),
-    },
-    async (args) => {
+    "Get student homework grouped by day for one or more students. Omit students to query all known students sequentially.",
+    { ...studentsSchema, date: z.string().optional() },
+    async (args) => serialize(async () => {
       log("info", "get_student_cahier_de_textes tool invoked");
-      const result = await data.getStudentCahierDeTextes(args);
-      return resultForStudentCahierDeTextes(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentCahierDeTextes(
+          await data.getStudentCahierDeTextes({ ...t, date: args.date }),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "get_student_cahier_de_textes_day",
-    "Get detailed homework and lesson content for a selected student on a specific date",
-    {
-      ...studentQuerySchema,
-      date: z.string(),
-    },
-    async (args) => {
+    "Get detailed homework and lesson content for one or more students on a specific date. Omit students to query all known students sequentially.",
+    { ...studentsSchema, date: z.string() },
+    async (args) => serialize(async () => {
       log("info", "get_student_cahier_de_textes_day tool invoked");
-      const result = await data.getStudentCahierDeTextesDay(args);
-      return resultForStudentCahierDeTextesDay(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentCahierDeTextesDay(
+          await data.getStudentCahierDeTextesDay({ ...t, date: args.date }),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "download_student_cahier_de_textes_attachment",
     "Download a selected homework or lesson attachment from a student's cahier de textes day detail",
     cahierDeTextesAttachmentQuerySchema,
-    async (args) => {
+    async (args) => serialize(async () => {
       log("info", "download_student_cahier_de_textes_attachment tool invoked");
       const result = await data.downloadStudentCahierDeTextesAttachment(args);
       return resultForStudentCahierDeTextesAttachment(result);
-    },
+    }),
   );
 
   server.tool(
     "get_student_vie_scolaire",
-    "Get student absences, dispenses, sanctions, and related vie scolaire settings",
-    studentQuerySchema,
-    async (args) => {
+    "Get student absences, dispenses, sanctions, and related vie scolaire settings for one or more students. Omit students to query all known students sequentially.",
+    studentsSchema,
+    async (args) => serialize(async () => {
       log("info", "get_student_vie_scolaire tool invoked");
-      const result = await data.getStudentVieScolaire(args);
-      return resultForStudentVieScolaire(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentVieScolaire(await data.getStudentVieScolaire(t)),
+      );
+    }),
   );
 
   server.tool(
     "list_student_carnet_correspondance",
-    "List carnet de correspondance entries for an authenticated student account",
-    studentQuerySchema,
-    async (args) => {
+    "List carnet de correspondance entries for one or more students. Omit students to query all known students sequentially.",
+    studentsSchema,
+    async (args) => serialize(async () => {
       log("info", "list_student_carnet_correspondance tool invoked");
-      const result = await data.listStudentCarnetCorrespondance(args);
-      return resultForStudentCarnetCorrespondance(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentCarnetCorrespondance(
+          await data.listStudentCarnetCorrespondance(t),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "list_student_sessions_rdv",
-    "List appointment sessions and invitee metadata for an authenticated student account",
-    studentQuerySchema,
-    async (args) => {
+    "List appointment sessions and invitee metadata for one or more students. Omit students to query all known students sequentially.",
+    studentsSchema,
+    async (args) => serialize(async () => {
       log("info", "list_student_sessions_rdv tool invoked");
-      const result = await data.listStudentSessionsRdv(args);
-      return resultForStudentSessionsRdv(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentSessionsRdv(
+          await data.listStudentSessionsRdv(t),
+        ),
+      );
+    }),
   );
 
   server.tool(
     "get_class_vie_de_la_classe",
-    "Get class-level vie de la classe data for the selected student's class",
-    studentQuerySchema,
-    async (args) => {
+    "Get class-level vie de la classe data for one or more students' classes. Omit students to query all known students sequentially.",
+    studentsSchema,
+    async (args) => serialize(async () => {
       log("info", "get_class_vie_de_la_classe tool invoked");
-      const result = await data.getClassVieDeLaClasse(args);
-      return resultForClassVieDeLaClasse(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForClassVieDeLaClasse(await data.getClassVieDeLaClasse(t)),
+      );
+    }),
   );
 
   server.tool(
     "get_student_emploi_du_temps",
-    "Get student timetable events grouped by day for an authenticated student account",
-    {
-      ...studentQuerySchema,
-      date: z.string().optional(),
-    },
-    async (args) => {
+    "Get student timetable events grouped by day for one or more students. Omit students to query all known students sequentially.",
+    { ...studentsSchema, date: z.string().optional() },
+    async (args) => serialize(async () => {
       log("info", "get_student_emploi_du_temps tool invoked");
-      const result = await data.getStudentEmploiDuTemps(args);
-      return resultForStudentEmploiDuTemps(result);
-    },
+      return forEachStudent(data, args.students, async (t) =>
+        resultForStudentEmploiDuTemps(
+          await data.getStudentEmploiDuTemps({ ...t, date: args.date }),
+        ),
+      );
+    }),
   );
 }
 

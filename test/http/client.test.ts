@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { EdHttpClient } from "../../src/ecoledirecte/http/client.js";
 
 describe("EdHttpClient", () => {
@@ -90,6 +90,91 @@ describe("EdHttpClient", () => {
     });
   });
 
+  describe("Set-Cookie ingestion", () => {
+    it("parses GTK from Set-Cookie headers", () => {
+      const client = new EdHttpClient();
+      const headers = new Headers();
+      // Simulate raw Set-Cookie header
+      (headers as any).getSetCookie = () => [
+        "GTK=abc123xyz; Path=/; Domain=.ecoledirecte.com",
+        "OTHER=val; Path=/",
+      ];
+      client.ingestSetCookieHeaders(headers);
+      expect(client.getCookie("GTK")).toBe("abc123xyz");
+      expect(client.getCookie("OTHER")).toBe("val");
+    });
+  });
+
+  describe("X-GTK from cookie fallback", () => {
+    it("sends X-GTK derived from GTK cookie when xGtk is not set", async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedHeaders: Headers | undefined;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        capturedHeaders = new Headers(init?.headers);
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        client.setCookie("GTK", "cookie-gtk-value");
+        // xGtk is NOT set — the client should fall back to the cookie
+        await client.postForm("https://example.test", {});
+        expect(capturedHeaders?.get("X-GTK")).toBe("cookie-gtk-value");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("prefers explicit xGtk over GTK cookie", async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedHeaders: Headers | undefined;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        capturedHeaders = new Headers(init?.headers);
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        client.setCookie("GTK", "cookie-gtk-value");
+        client.setGtk("explicit-gtk-value");
+        await client.postForm("https://example.test", {});
+        expect(capturedHeaders?.get("X-GTK")).toBe("explicit-gtk-value");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("omits X-GTK when includeGtk is false", async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedHeaders: Headers | undefined;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        capturedHeaders = new Headers(init?.headers);
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        client.setCookie("GTK", "cookie-gtk-value");
+        await client.postForm("https://example.test", {}, { includeGtk: false });
+        expect(capturedHeaders?.get("X-GTK")).toBeNull();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   describe("request headers", () => {
     it("sends a browser-compatible user agent by default", async () => {
       const originalFetch = globalThis.fetch;
@@ -108,6 +193,52 @@ describe("EdHttpClient", () => {
       try {
         const client = new EdHttpClient();
         await client.postForm("https://example.test", {});
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe("fetch timeout", () => {
+    it("passes an AbortSignal to GET requests", async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedSignal: AbortSignal | undefined;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        capturedSignal = init?.signal ?? undefined;
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        await client.get("https://example.test");
+        expect(capturedSignal).toBeDefined();
+        expect(capturedSignal!.aborted).toBe(false);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("passes an AbortSignal to POST requests", async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedSignal: AbortSignal | undefined;
+      const fetchMock = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+        capturedSignal = init?.signal ?? undefined;
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        await client.postForm("https://example.test", { key: "value" });
+        expect(capturedSignal).toBeDefined();
+        expect(capturedSignal!.aborted).toBe(false);
       } finally {
         globalThis.fetch = originalFetch;
       }

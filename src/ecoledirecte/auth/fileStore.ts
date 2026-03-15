@@ -13,12 +13,15 @@ import type { StoredCredentials, StoredSession } from "./types.js";
 
 const CREDS_FILE = "credentials.json";
 const SESSION_FILE = "session.json";
+const DEFAULT_DIR = join(homedir(), ".ecoledirecte");
 
 export class FileAuthStore implements AuthStore {
   private readonly dir: string;
+  private readonly credentialsPath: string;
 
-  constructor(dir?: string) {
-    this.dir = dir ?? join(homedir(), ".ecoledirecte");
+  constructor(opts?: { dir?: string; credentialsFile?: string }) {
+    this.dir = opts?.dir ?? DEFAULT_DIR;
+    this.credentialsPath = opts?.credentialsFile ?? join(this.dir, CREDS_FILE);
   }
 
   private async ensureDir(): Promise<void> {
@@ -57,15 +60,28 @@ export class FileAuthStore implements AuthStore {
   // ── AuthStore implementation ─────────────────────────────────
 
   async saveCredentials(creds: StoredCredentials): Promise<void> {
-    await this.writeJson(CREDS_FILE, creds);
+    await this.ensureDir();
+    await writeFile(this.credentialsPath, JSON.stringify(creds, null, 2), {
+      mode: 0o600,
+      encoding: "utf-8",
+    });
   }
 
   async loadCredentials(): Promise<StoredCredentials | undefined> {
-    return this.readJson<StoredCredentials>(CREDS_FILE);
+    try {
+      const raw = await readFile(this.credentialsPath, "utf-8");
+      return JSON.parse(raw) as StoredCredentials;
+    } catch {
+      return undefined;
+    }
   }
 
   async clearCredentials(): Promise<void> {
-    await this.removeFile(CREDS_FILE);
+    try {
+      await rm(this.credentialsPath);
+    } catch {
+      // already absent
+    }
   }
 
   async saveSession(session: StoredSession): Promise<void> {

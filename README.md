@@ -25,7 +25,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Emploi du temps** — returns timetable events grouped by day through the authenticated `E/{id}/emploidutemps.awp` route.
 - **Family documents** — returns family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises) through the authenticated `familledocuments.awp` route.
 - **Family invoices** — lists family-level invoices and signature documents through the authenticated `factures.awp` route.
-- **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700).
+- **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
 ## Quick Start
@@ -51,11 +51,59 @@ Configure your MCP client to launch this server via stdio:
 }
 ```
 
+### Credentials file
+
+The `login` tool reads credentials from a JSON file instead of accepting them as arguments.
+
+1. **Default location:** `~/.ecoledirecte/credentials.json`
+2. **Custom location:** set the `ECOLEDIRECTE_CREDENTIALS_FILE` environment variable to the absolute path of your credentials file.
+
+Create the file with this structure:
+
+```json
+{
+  "identifiant": "your-username",
+  "motdepasse": "your-password",
+  "fa": [
+    {
+      "cn": "optional-replay-cn",
+      "cv": "optional-replay-cv",
+      "uniq": false
+    }
+  ]
+}
+```
+
+`fa` is optional. The server now writes reusable secure-question replay data back into this file automatically after a successful secure-question login so later `login` calls can skip repeating that challenge when EcoleDirecte still accepts the saved factor.
+
+Keep the file permissions restrictive:
+
+```bash
+chmod 600 ~/.ecoledirecte/credentials.json
+```
+
+To use a custom path:
+
+```json
+{
+  "mcpServers": {
+    "ecoledirecte": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "cwd": "/path/to/EcoleDirecteMCP",
+      "env": {
+        "ECOLEDIRECTE_CREDENTIALS_FILE": "/secure/path/credentials.json"
+      }
+    }
+  }
+}
+```
+
 ## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `login` | Authenticate with username and password |
+| `login` | Authenticate using credentials from the configured file (see below) |
 | `submit_totp` | Complete 2FA with a TOTP code |
 | `submit_doubleauth` | Answer the identity-verification question shown after login |
 | `import_session` | Load a session from a browser-export JSON file and validate it |
@@ -63,23 +111,25 @@ Configure your MCP client to launch this server via stdio:
 | `validate_session` | Validate the current session against the live API |
 | `list_family_messages` | List family-level messages for the authenticated family account |
 | `get_family_message_detail` | Get the full content of a selected family message (may mark it as read) |
-| `list_student_messages` | List student-level messages for a selected student |
-| `get_student_notes` | Get student notes plus period averages for a selected student |
-| `get_student_profile` | Get identity and class metadata for a selected student |
-| `get_student_cahier_de_textes` | Get student homework grouped by day for a selected student |
-| `get_student_cahier_de_textes_day` | Get decoded homework content and lesson content for a selected student on a specific date |
+| `list_student_messages` | List student-level messages for one or more students (sequential) |
+| `get_student_notes` | Get student notes plus period averages for one or more students |
+| `get_student_profile` | Get identity and class metadata for one or more students |
+| `get_student_cahier_de_textes` | Get student homework grouped by day for one or more students |
+| `get_student_cahier_de_textes_day` | Get decoded homework content and lesson content for one or more students on a specific date |
 | `download_student_cahier_de_textes_attachment` | Download a selected homework or lesson attachment from a student cahier de textes day detail |
-| `get_student_vie_scolaire` | Get student absences, dispenses, sanctions, and settings |
-| `list_student_carnet_correspondance` | List carnet de correspondance entries for a selected student |
-| `list_student_sessions_rdv` | List appointment sessions and invitee metadata for a selected student |
-| `get_class_vie_de_la_classe` | Get class-level vie de la classe data for the selected student's class |
-| `get_student_emploi_du_temps` | Get timetable events grouped by day for a selected student |
+| `get_student_vie_scolaire` | Get student absences, dispenses, sanctions, and settings for one or more students |
+| `list_student_carnet_correspondance` | List carnet de correspondance entries for one or more students |
+| `list_student_sessions_rdv` | List appointment sessions and invitee metadata for one or more students |
+| `get_class_vie_de_la_classe` | Get class-level vie de la classe data for one or more students' classes |
+| `get_student_emploi_du_temps` | Get timetable events grouped by day for one or more students |
 | `get_family_documents` | Get family-level documents grouped by category |
 | `list_family_invoices` | List family-level invoices and signature documents |
 | `logout` | Clear the session (keeps saved credentials) |
 | `logout_full` | Clear both session and saved credentials |
 
 If multiple family accounts or students are available, pass `accountId` and/or `studentId`. When the imported or authenticated session includes browser account metadata such as `idLogin` and `current`, the server automatically switches to the requested family context before calling the private API. The tool error payload lists the available choices when selection is ambiguous.
+
+Student-scoped tools accept an optional `students` array of `{studentId, accountId?}` targets. When omitted, the tool queries all known students sequentially, switching account context and renewing the token between each call. All tool calls are serialized to prevent concurrent API requests from causing stale-token conflicts.
 
 ## Browser Session Export Format
 
@@ -134,7 +184,7 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 3. **Response handling:**
    - Code `200` → authenticated, token in response.
   - Code `250` with `data.totp=true` → TOTP required.
-  - Code `250` with `data.totp=false` → secure question required; fetch the question with `POST /v3/connexion/doubleauth.awp?verbe=get&v=4.96.3`, submit the chosen answer to `...verbe=post`, then replay `login.awp` with the returned `cn`/`cv` values in both the top-level payload and the `fa` array.
+  - Code `250` with `data.totp=false` → secure question required; fetch the question with `POST /v3/connexion/doubleauth.awp?verbe=get&v=4.96.3`, submit the chosen answer to `...verbe=post`, then replay `login.awp` with the returned `cn`/`cv` values inside the `fa` array. On success the reusable `fa` value is persisted back to `credentials.json` for future logins.
    - Code `505` → invalid credentials.
    - Code `516`/`535` → account blocked.
    - Code `521` → session/token expired.

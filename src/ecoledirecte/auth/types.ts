@@ -78,10 +78,19 @@ export interface StudentInfo {
   establishment?: string;
 }
 
+/** Reusable second-factor material accepted in the login `fa` payload. */
+export interface LoginFactor {
+  cn: string;
+  cv: string;
+  uniq?: boolean;
+}
+
 /** Persisted credential material (encrypted or plain depending on store). */
 export interface StoredCredentials {
   identifiant: string;
   motdepasse: string;
+  /** Optional reusable secure-question replay data persisted after successful auth. */
+  fa?: LoginFactor[];
 }
 
 /** Persisted session material for restore-on-restart. */
@@ -91,6 +100,8 @@ export interface StoredSession {
   xGtk?: string;
   twoFaToken?: string;
   accounts?: AccountInfo[];
+  /** Per-account token cache — avoids redundant renewToken calls when switching establishments. */
+  accountTokens?: Record<number, string>;
   version: string;
   savedAt: string; // ISO timestamp
 }
@@ -101,9 +112,7 @@ export interface LoginPayload {
   motdepasse: string;
   isReLogin: boolean;
   uuid: string;
-  fa: unknown[];
-  cn?: string;
-  cv?: string;
+  fa: LoginFactor[];
   /** Accept charter if required by a previous attempt. */
   acceptationCharte?: boolean;
 }

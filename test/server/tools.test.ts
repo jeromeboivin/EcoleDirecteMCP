@@ -28,6 +28,7 @@ function stubAuth(state: AuthState) {
   return {
     getState: () => state,
     login: vi.fn().mockResolvedValue(state),
+    loginFromStore: vi.fn().mockResolvedValue(state),
     submitTotp: vi.fn().mockResolvedValue(state),
     submitDoubleAuthChoice: vi.fn().mockResolvedValue(state),
     importSession: vi.fn().mockResolvedValue(state),
@@ -142,7 +143,7 @@ describe("MCP tool responses", () => {
     expect(result.content[0].text).toContain("Authenticated");
   });
 
-  it("login tool invokes auth.login and formats result", async () => {
+  it("login tool is parameterless and invokes auth.loginFromStore", async () => {
     const state: AuthState = {
       status: "authenticated",
       token: "tok",
@@ -153,9 +154,9 @@ describe("MCP tool responses", () => {
     registerTools(server as any, auth as any);
 
     const handler = server.handlers.get("login")!;
-    const result = await handler({ identifiant: "user", motdepasse: "pass" });
+    const result = await handler({});
 
-    expect(auth.login).toHaveBeenCalledWith("user", "pass");
+    expect(auth.loginFromStore).toHaveBeenCalled();
     expect(result.content[0].text).toContain("Authenticated");
   });
 

@@ -928,6 +928,24 @@ export class EdDataService {
     };
   }
 
+  async listAllStudents(): Promise<DataResult<StudentChoice[]>> {
+    const authState = await this.ensureReadyAuth();
+    if (!authState.ok) return authState;
+
+    const candidates = authState.accounts.flatMap(account =>
+      (account.students ?? []).map(student => summarizeStudent(account, student)),
+    );
+
+    if (candidates.length === 0) {
+      return this.failure(
+        "No student metadata is available for the authenticated account(s). Re-authenticate or import a session that includes accounts and students.",
+        false,
+      );
+    }
+
+    return { ok: true, data: candidates };
+  }
+
   private async ensureReadyAuth(): Promise<
     | { ok: true; accounts: AccountInfo[] }
     | DataFailure

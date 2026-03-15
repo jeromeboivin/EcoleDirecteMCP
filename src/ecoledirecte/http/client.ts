@@ -8,6 +8,7 @@
 import { CONTENT_TYPE_FORM } from "../api/constants.js";
 
 const DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+const FETCH_TIMEOUT_MS = 30_000;
 
 export class EdHttpClient {
   private cookies = new Map<string, string>();
@@ -106,7 +107,10 @@ export class EdHttpClient {
     };
     const cookieStr = this.buildCookieHeader();
     if (cookieStr) h["Cookie"] = cookieStr;
-    if (includeGtk && this.xGtk) h["X-GTK"] = this.xGtk;
+    if (includeGtk) {
+      const gtkValue = this.xGtk ?? this.cookies.get("GTK");
+      if (gtkValue) h["X-GTK"] = gtkValue;
+    }
     if (includeToken && this.xToken) h["X-Token"] = this.xToken;
     if (includeTwoFaToken && this.twoFaToken) h["2FA-Token"] = this.twoFaToken;
     return h;
@@ -127,6 +131,7 @@ export class EdHttpClient {
       method: "GET",
       headers: this.commonHeaders(opts),
       redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   }
 
@@ -148,6 +153,7 @@ export class EdHttpClient {
       },
       body,
       redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   }
 

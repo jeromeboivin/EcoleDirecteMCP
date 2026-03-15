@@ -12,11 +12,11 @@ export function registerTools(server: McpServer, auth: AuthService): void {
   // ── login ────────────────────────────────────────────────────
   server.tool(
     "login",
-    "Authenticate with EcoleDirecte using username and password",
-    { identifiant: z.string(), motdepasse: z.string() },
-    async ({ identifiant, motdepasse }) => {
+    "Authenticate with EcoleDirecte using credentials stored in the configured credentials file (set ECOLEDIRECTE_CREDENTIALS_FILE or use the default ~/.ecoledirecte/credentials.json)",
+    {},
+    async () => {
       log("info", "login tool invoked");
-      const state = await auth.login(identifiant, motdepasse);
+      const state = await auth.loginFromStore();
       return toolResult(state);
     },
   );
@@ -125,7 +125,7 @@ function formatState(state: ReturnType<AuthService["getState"]>): string {
     case "logged-out":
       return "Not authenticated. Use the login tool or import a session.";
     case "login-pending":
-      return "Login in progress…";
+      return "Login is already in progress — please wait and retry.";
     case "totp-required":
       return `Two-factor authentication required (TOTP: ${state.totp}). Use submit_totp with your code.`;
     case "doubleauth-required":
@@ -133,7 +133,7 @@ function formatState(state: ReturnType<AuthService["getState"]>): string {
         .map((choice, index) => `${index + 1}. ${choice.label}`)
         .join(", ")}. Use submit_doubleauth with your choiceIndex.`;
     case "authenticated":
-      return `Authenticated${formatCurrentAccount(state.accounts)}. Accounts: ${state.accounts.map((account) => `${account.name} (${account.type})${account.current ? " [current]" : ""}`).join(", ") || "none parsed"}`;
+      return `Authenticated${formatCurrentAccount(state.accounts)}. Accounts: ${formatAccountList(state.accounts)}`;
     case "session-imported":
       return `Session imported successfully. Token loaded${formatCurrentAccount(state.accounts ?? [])}.`;
     case "error":
@@ -146,4 +146,26 @@ function formatCurrentAccount(accounts: { name: string; establishment?: string; 
   if (!current) return "";
   const label = current.establishment ? `${current.name} / ${current.establishment}` : current.name;
   return ` (current account: ${label})`;
+}
+
+function formatAccountList(
+  accounts: { name: string; type: string; establishment?: string; current?: boolean; students?: { name: string; className?: string; establishment?: string }[] }[],
+): string {
+  if (accounts.length === 0) return "none parsed";
+  return accounts
+    .map((account) => {
+      let label = `${account.name} (${account.type})`;
+      if (account.establishment) label += ` @ ${account.establishment}`;
+      if (account.current) label += " [current]";
+      if (account.students && account.students.length > 0) {
+        const studentLabels = account.students.map((s) => {
+          let sl = s.name;
+          if (s.className) sl += ` (${s.className})`;
+          return sl;
+        });
+        label += ` — students: ${studentLabels.join(", ")}`;
+      }
+      return label;
+    })
+    .join(" | ");
 }

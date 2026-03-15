@@ -939,4 +939,21 @@ describe("EdDataService", () => {
       { includeGtk: false },
     );
   });
+
+  it("lists all students across all accounts", async () => {
+    const http = makeHttp([]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listAllStudents();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]?.id).toBe(1154);
+      expect(result.data[0]?.accountId).toBe(828);
+      expect(result.data[1]?.id).toBe(15902);
+      expect(result.data[1]?.accountId).toBe(17405);
+    }
+  });
 });

@@ -225,6 +225,12 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         invoices: [{ id: 10 }, { id: 11 }],
       },
     }),
+    listAllStudents: vi.fn().mockResolvedValue({
+      ok: true,
+      data: [
+        { id: 1154, name: "Antonin Boivin", accountId: 828, accountName: "Anne Roudier-Boivin" },
+      ],
+    }),
     ...overrides,
   };
 }
@@ -278,11 +284,11 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("list_student_messages")!({ studentId: 1154, mailbox: "received" });
+    const result = await server.handlers.get("list_student_messages")!({ students: [{ studentId: 1154 }], mailbox: "received" });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("Antonin Boivin");
-    expect(data.listStudentMessages).toHaveBeenCalledWith({ studentId: 1154, mailbox: "received" });
+    expect(data.listStudentMessages).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154, mailbox: "received" }));
   });
 
   it("returns an error payload when student notes fail", async () => {
@@ -297,7 +303,7 @@ describe("MCP data tools", () => {
     });
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_student_notes")!({});
+    const result = await server.handlers.get("get_student_notes")!({ students: [{ studentId: 1154 }] });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Multiple students");
@@ -327,11 +333,11 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_student_cahier_de_textes")!({ studentId: 1154, date: "2026-03-12" });
+    const result = await server.handlers.get("get_student_cahier_de_textes")!({ students: [{ studentId: 1154 }], date: "2026-03-12" });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("homework assignments");
-    expect(data.getStudentCahierDeTextes).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
+    expect(data.getStudentCahierDeTextes).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154, date: "2026-03-12" }));
   });
 
   it("registers get_student_profile and formats the summary", async () => {
@@ -339,11 +345,11 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_student_profile")!({ studentId: 1154 });
+    const result = await server.handlers.get("get_student_profile")!({ students: [{ studentId: 1154 }] });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("Profile for Antonin BOIVIN in 3B.");
-    expect(data.getStudentProfile).toHaveBeenCalledWith({ studentId: 1154 });
+    expect(data.getStudentProfile).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154 }));
   });
 
   it("registers get_student_cahier_de_textes_day and formats the summary", async () => {
@@ -351,12 +357,12 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_student_cahier_de_textes_day")!({ studentId: 1154, date: "2026-03-12" });
+    const result = await server.handlers.get("get_student_cahier_de_textes_day")!({ students: [{ studentId: 1154 }], date: "2026-03-12" });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("homework entries and 1 lesson content entries");
     expect(result.content[0].text).toContain("2026-03-12");
-    expect(data.getStudentCahierDeTextesDay).toHaveBeenCalledWith({ studentId: 1154, date: "2026-03-12" });
+    expect(data.getStudentCahierDeTextesDay).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154, date: "2026-03-12" }));
   });
 
   it("registers download_student_cahier_de_textes_attachment and formats the summary", async () => {
@@ -389,11 +395,11 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_class_vie_de_la_classe")!({ studentId: 1154 });
+    const result = await server.handlers.get("get_class_vie_de_la_classe")!({ students: [{ studentId: 1154 }] });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("No vie de la classe sections are available");
-    expect(data.getClassVieDeLaClasse).toHaveBeenCalledWith({ studentId: 1154 });
+    expect(data.getClassVieDeLaClasse).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154 }));
   });
 
   it("registers get_student_emploi_du_temps and formats the summary", async () => {
@@ -401,12 +407,12 @@ describe("MCP data tools", () => {
     const data = stubData();
     registerDataTools(server as any, data as any);
 
-    const result = await server.handlers.get("get_student_emploi_du_temps")!({ studentId: 1154 });
+    const result = await server.handlers.get("get_student_emploi_du_temps")!({ students: [{ studentId: 1154 }] });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("timetable events");
     expect(result.content[0].text).toContain("Antonin Boivin");
-    expect(data.getStudentEmploiDuTemps).toHaveBeenCalledWith({ studentId: 1154 });
+    expect(data.getStudentEmploiDuTemps).toHaveBeenCalledWith(expect.objectContaining({ studentId: 1154 }));
   });
 
   it("registers get_family_documents and formats the summary", async () => {
@@ -434,5 +440,52 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("2 invoices");
     expect(result.content[0].text).toContain("Anne Roudier-Boivin");
     expect(data.listFamilyInvoices).toHaveBeenCalled();
+  });
+
+  it("resolves all students when students param is omitted", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_student_notes")!({});
+
+    expect(result.isError).toBe(false);
+    expect(data.listAllStudents).toHaveBeenCalled();
+    expect(data.getStudentNotes).toHaveBeenCalledWith(
+      expect.objectContaining({ studentId: 1154, accountId: 828 }),
+    );
+  });
+
+  it("queries multiple students sequentially", async () => {
+    const callOrder: number[] = [];
+    const server = stubServer();
+    const data = stubData({
+      getStudentNotes: vi.fn()
+        .mockImplementation(async (query: { studentId: number }) => {
+          callOrder.push(query.studentId);
+          return {
+            ok: true,
+            data: {
+              scope: "student",
+              family: { id: 828, name: "Anne Roudier-Boivin" },
+              student: { id: query.studentId, name: `Student ${query.studentId}`, accountId: 828, accountName: "Anne Roudier-Boivin" },
+              settings: {},
+              periods: [],
+              grades: [{ id: query.studentId }],
+              expired: false,
+            },
+          };
+        }),
+    });
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_student_notes")!({
+      students: [{ studentId: 1154 }, { studentId: 15902 }],
+    });
+
+    expect(result.isError).toBe(false);
+    expect(callOrder).toEqual([1154, 15902]);
+    expect(data.getStudentNotes).toHaveBeenCalledTimes(2);
+    expect(result.content[0].text).toContain("---");
   });
 });

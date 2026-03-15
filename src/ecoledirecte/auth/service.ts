@@ -16,7 +16,9 @@ import { ApiCode, normalizeLoginResponse, normalizeProbeResponse, type RawApiRes
 import type { AuthStore } from "./store.js";
 import type {
   AuthState,
+  LoginFactor,
   LoginPayload,
+  StoredCredentials,
   StoredSession,
   AccountInfo,
 } from "./types.js";
@@ -24,6 +26,12 @@ import type {
 export class AuthService {
   private state: AuthState = { status: "logged-out" };
   private pendingPayload: LoginPayload | undefined;
+  /** GTK captured after the initial login POST, preserved for the final replay. */
+  private loginGtk: string | undefined;
+  /** In-flight login promise — prevents concurrent logins from corrupting state. */
+  private loginInFlight: Promise<AuthState> | undefined;
+  /** Per-account token cache — avoids redundant renewToken API calls. */
+  private accountTokens = new Map<number, string>();
 
   constructor(
     private readonly http: EdHttpClient,
@@ -36,69 +44,121 @@ export class AuthService {
 
   // ── Direct login ─────────────────────────────────────────────
 
-  async login(identifiant: string, motdepasse: string): Promise<AuthState> {
-    this.http.clearAuth();
-    this.state = { status: "login-pending" };
-
-    // 1. Bootstrap — obtain GTK cookie + header value
-    const bootstrapUrl = loginUrl({ gtk: true, version: this.http.version });
-    const bootstrapRes = await this.http.get(bootstrapUrl);
-    this.http.captureAuthHeaders(bootstrapRes);
-
-    // The bootstrap body may contain a GTK value we need for the POST
+  async loginFromStore(): Promise<AuthState> {
     try {
-      const bootstrapBody = (await bootstrapRes.json()) as RawApiResponse;
-      if (bootstrapBody.token) {
-        this.http.setGtk(bootstrapBody.token);
-      }
-    } catch {
-      // Non-JSON bootstrap response — GTK is in headers/cookies only
-    }
-
-    // 2. Login POST
-    const payload: LoginPayload = {
-      identifiant,
-      motdepasse,
-      isReLogin: false,
-      uuid: "",
-      fa: [],
-    };
-    this.pendingPayload = payload;
-
-    const postUrl = loginUrl({ version: this.http.version });
-    const res = await this.http.postForm(postUrl, payload as unknown as Record<string, unknown>);
-    this.http.captureAuthHeaders(res);
-
-    const body = (await res.json()) as RawApiResponse;
-    const result = normalizeLoginResponse(body);
-
-    switch (result.nextState) {
-      case "authenticated": {
-        return this.completeAuthentication(body, { identifiant, motdepasse });
-      }
-
-      case "totp-required": {
-        const totp = !!(result.challenge?.totp ?? true);
-        this.state = {
-          status: "totp-required",
-          challenge: result.challenge ?? {},
-          totp,
-        };
-        break;
-      }
-
-      case "doubleauth-required":
-        return this.fetchDoubleAuthChallenge();
-
-      default:
+      const creds = await this.store.loadCredentials();
+      if (!creds) {
         this.state = {
           status: "error",
-          message: result.message ?? "Login failed",
-          recoverable: result.nextState === "error",
+          message:
+            "No credentials file found. Create a JSON file with {\"identifiant\": \"…\", \"motdepasse\": \"…\"} " +
+            "at the path given by ECOLEDIRECTE_CREDENTIALS_FILE, or at ~/.ecoledirecte/credentials.json.",
+          recoverable: true,
         };
+        return this.state;
+      }
+      return this.login(creds.identifiant, creds.motdepasse, creds.fa);
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Login failed: ${formatError(error)}`,
+        recoverable: true,
+      };
+      return this.state;
     }
+  }
 
-    return this.state;
+  async login(identifiant: string, motdepasse: string, persistedFa?: LoginFactor[]): Promise<AuthState> {
+    if (this.loginInFlight) return this.loginInFlight;
+
+    const task = this.performLogin(identifiant, motdepasse, persistedFa);
+    this.loginInFlight = task;
+    try {
+      return await task;
+    } finally {
+      this.loginInFlight = undefined;
+    }
+  }
+
+  private async performLogin(identifiant: string, motdepasse: string, persistedFa?: LoginFactor[]): Promise<AuthState> {
+    this.http.clearAuth();
+    this.loginGtk = undefined;
+    this.state = { status: "login-pending" };
+
+    try {
+      // 1. Bootstrap — obtain GTK cookie + header value
+      const bootstrapUrl = loginUrl({ gtk: true, version: this.http.version });
+      const bootstrapRes = await this.http.get(bootstrapUrl);
+      this.http.captureAuthHeaders(bootstrapRes);
+
+      // The bootstrap body may contain a GTK value we need for the POST
+      try {
+        const bootstrapBody = (await bootstrapRes.json()) as RawApiResponse;
+        if (bootstrapBody.token) {
+          this.http.setGtk(bootstrapBody.token);
+        }
+      } catch {
+        // Non-JSON bootstrap response — GTK is in headers/cookies only
+      }
+
+      // 2. Login POST
+      const reusableFa = normalizeLoginFactors(persistedFa);
+      const payload: LoginPayload = {
+        identifiant,
+        motdepasse,
+        isReLogin: false,
+        uuid: "",
+        fa: reusableFa,
+      };
+      this.pendingPayload = payload;
+
+      const postUrl = loginUrl({ version: this.http.version });
+      const res = await this.http.postForm(postUrl, payload as unknown as Record<string, unknown>);
+      this.http.captureAuthHeaders(res);
+
+      const body = (await res.json()) as RawApiResponse;
+      const result = normalizeLoginResponse(body);
+
+      switch (result.nextState) {
+        case "authenticated": {
+          return this.completeAuthentication(body, buildStoredCredentials(identifiant, motdepasse, reusableFa));
+        }
+
+        case "totp-required": {
+          const totp = !!(result.challenge?.totp ?? true);
+          this.loginGtk = this.http.getGtk();
+          this.state = {
+            status: "totp-required",
+            challenge: result.challenge ?? {},
+            totp,
+          };
+          break;
+        }
+
+        case "doubleauth-required":
+          this.loginGtk = this.http.getGtk();
+          return this.fetchDoubleAuthChallenge();
+
+        default:
+          if (reusableFa.length > 0 && body.code === ApiCode.INVALID_CREDENTIALS) {
+            return this.performLogin(identifiant, motdepasse);
+          }
+          this.state = {
+            status: "error",
+            message: result.message ?? "Login failed",
+            recoverable: result.nextState === "error",
+          };
+      }
+
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Login failed: ${formatError(error)}`,
+        recoverable: true,
+      };
+      return this.state;
+    }
   }
 
   // ── TOTP continuation ────────────────────────────────────────
@@ -112,32 +172,41 @@ export class AuthService {
       };
     }
 
-    const payload: LoginPayload = {
-      ...this.pendingPayload,
-      fa: [{ cv: code, cn: "" }],
-    };
+    try {
+      const payload: LoginPayload = {
+        ...this.pendingPayload,
+        fa: [{ cv: code, cn: "" }],
+      };
 
-    const postUrl = loginUrl({ version: this.http.version });
-    const res = await this.http.postForm(postUrl, payload as unknown as Record<string, unknown>);
-    this.http.captureAuthHeaders(res);
+      const body = await this.replayLogin(payload);
+      const result = normalizeLoginResponse(body);
 
-    const body = (await res.json()) as RawApiResponse;
-    const result = normalizeLoginResponse(body);
+      if (result.nextState === "authenticated") {
+        return this.completeAuthentication(
+          body,
+          buildStoredCredentials(
+            this.pendingPayload.identifiant,
+            this.pendingPayload.motdepasse,
+            this.pendingPayload.fa,
+          ),
+        );
+      }
 
-    if (result.nextState === "authenticated") {
-      return this.completeAuthentication(body, {
-        identifiant: this.pendingPayload.identifiant,
-        motdepasse: this.pendingPayload.motdepasse,
-      });
+      this.state = {
+        status: "error",
+        message: result.message ?? "TOTP verification failed",
+        recoverable: true,
+      };
+
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `TOTP submission failed: ${formatError(error)}`,
+        recoverable: true,
+      };
+      return this.state;
     }
-
-    this.state = {
-      status: "error",
-      message: result.message ?? "TOTP verification failed",
-      recoverable: true,
-    };
-
-    return this.state;
   }
 
   // ── Secure question continuation ───────────────────────────
@@ -160,56 +229,57 @@ export class AuthService {
       };
     }
 
-    const challengeRes = await this.http.postForm(
-      doubleAuthUrl({ verb: "post", version: this.http.version }),
-      { choix: choice.value },
-      { includeGtk: false },
-    );
-    this.http.captureAuthHeaders(challengeRes);
+    try {
+      const challengeRes = await this.http.postForm(
+        doubleAuthUrl({ verb: "post", version: this.http.version }),
+        { choix: choice.value },
+        { includeGtk: false },
+      );
+      this.http.captureAuthHeaders(challengeRes);
 
-    const challengeBody = (await challengeRes.json()) as RawApiResponse;
-    const challengeData = challengeBody.data as Record<string, unknown> | undefined;
-    const cn = typeof challengeData?.cn === "string" ? challengeData.cn : undefined;
-    const cv = typeof challengeData?.cv === "string" ? challengeData.cv : undefined;
+      const challengeBody = (await challengeRes.json()) as RawApiResponse;
+      const challengeData = challengeBody.data as Record<string, unknown> | undefined;
+      const cn = typeof challengeData?.cn === "string" ? challengeData.cn : undefined;
+      const cv = typeof challengeData?.cv === "string" ? challengeData.cv : undefined;
 
-    if (challengeBody.code !== ApiCode.OK || !cn || !cv) {
+      if (challengeBody.code !== ApiCode.OK || !cn || !cv) {
+        this.state = {
+          status: "error",
+          message: challengeBody.message || "Identity verification failed",
+          recoverable: true,
+        };
+        return this.state;
+      }
+
+      const payload: LoginPayload = {
+        ...this.pendingPayload,
+        fa: [{ cn, cv, uniq: false }],
+      };
+
+      const loginBody = await this.replayLogin(payload);
+      const result = normalizeLoginResponse(loginBody);
+
+      if (result.nextState === "authenticated") {
+        return this.completeAuthentication(
+          loginBody,
+          buildStoredCredentials(this.pendingPayload.identifiant, this.pendingPayload.motdepasse, payload.fa),
+        );
+      }
+
       this.state = {
         status: "error",
-        message: challengeBody.message || "Identity verification failed",
+        message: result.message ?? "Identity verification failed",
+        recoverable: true,
+      };
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Identity verification failed: ${formatError(error)}`,
         recoverable: true,
       };
       return this.state;
     }
-
-    const payload: LoginPayload = {
-      ...this.pendingPayload,
-      cn,
-      cv,
-      fa: [{ cn, cv, uniq: false }],
-    };
-
-    const loginRes = await this.http.postForm(
-      loginUrl({ version: this.http.version }),
-      payload as unknown as Record<string, unknown>,
-    );
-    this.http.captureAuthHeaders(loginRes);
-
-    const loginBody = (await loginRes.json()) as RawApiResponse;
-    const result = normalizeLoginResponse(loginBody);
-
-    if (result.nextState === "authenticated") {
-      return this.completeAuthentication(loginBody, {
-        identifiant: this.pendingPayload.identifiant,
-        motdepasse: this.pendingPayload.motdepasse,
-      });
-    }
-
-    this.state = {
-      status: "error",
-      message: result.message ?? "Identity verification failed",
-      recoverable: true,
-    };
-    return this.state;
   }
 
   // ── Session import ───────────────────────────────────────────
@@ -256,11 +326,16 @@ export class AuthService {
       if (probe.valid) {
         const resolvedToken = this.getResolvedToken(probe.token ?? token);
         if (this.state.status === "authenticated") {
+          // Update cached token for the current account
+          const currentId = this.state.accounts.find((a) => a.current === true)?.id;
+          if (currentId !== undefined) this.accountTokens.set(currentId, resolvedToken);
+
           this.state = { ...this.state, token: resolvedToken };
           await this.persistSession(resolvedToken, this.state.accounts);
           return this.state;
         }
-        const accounts = this.state.status === "session-imported" ? this.state.accounts ?? [] : [];
+        const rawAccounts = this.state.status === "session-imported" ? this.state.accounts ?? [] : [];
+        const accounts = ensureCurrentFlag(rawAccounts);
         this.state = {
           status: "authenticated",
           token: resolvedToken,
@@ -272,11 +347,12 @@ export class AuthService {
 
       await this.store.clearSession();
       this.http.clearAuth();
+      this.clearAccountTokens();
 
       // Try saved credentials as fallback
       const creds = await this.store.loadCredentials();
       if (creds) {
-        return this.login(creds.identifiant, creds.motdepasse);
+        return this.login(creds.identifiant, creds.motdepasse, creds.fa);
       }
 
       this.state = {
@@ -288,7 +364,7 @@ export class AuthService {
     } catch (error) {
       this.state = {
         status: "error",
-        message: `Session validation failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Session validation failed: ${formatError(error)}`,
         recoverable: true,
       };
       return this.state;
@@ -315,6 +391,16 @@ export class AuthService {
 
     if (current.accounts.length === 1 || target.current === true) {
       return current;
+    }
+
+    // Try the per-account token cache before making an API call
+    const cachedToken = this.accountTokens.get(accountId);
+    if (cachedToken) {
+      this.http.setToken(cachedToken);
+      const accounts = markCurrentAccount(current.accounts, accountId);
+      this.state = { status: "authenticated", token: cachedToken, accounts };
+      await this.persistSession(cachedToken, accounts);
+      return this.state;
     }
 
     if (target.idLogin === undefined) {
@@ -355,7 +441,14 @@ export class AuthService {
       }
 
       const token = this.getResolvedToken(body.token);
-      const accounts = markCurrentAccount(current.accounts, resolvedAccountId);
+      const accounts = mergeAccountsAfterSwitch(
+        markCurrentAccount(current.accounts, resolvedAccountId),
+        body,
+      );
+
+      // Cache the token for this account
+      this.accountTokens.set(accountId, token);
+
       this.state = {
         status: "authenticated",
         token,
@@ -366,34 +459,59 @@ export class AuthService {
     } catch (error) {
       this.state = {
         status: "error",
-        message: `Account switch failed: ${error instanceof Error ? error.message : String(error)}`,
+        message: `Account switch failed: ${formatError(error)}`,
         recoverable: true,
       };
       return this.state;
     }
   }
 
+  /** Invalidate per-account token cache (e.g. after session expired). */
+  private clearAccountTokens(): void {
+    this.accountTokens.clear();
+  }
+
   async restore(): Promise<AuthState> {
-    const session = await this.store.loadSession();
-    if (session) {
-      this.http.loadCookies(session.cookies);
-      if (session.xGtk) this.http.setGtk(session.xGtk);
-      if (session.twoFaToken) this.http.setTwoFaToken(session.twoFaToken);
-      this.http.setToken(session.token);
+    try {
+      const session = await this.store.loadSession();
+      if (session) {
+        this.http.loadCookies(session.cookies);
+        if (session.xGtk) this.http.setGtk(session.xGtk);
+        if (session.twoFaToken) this.http.setTwoFaToken(session.twoFaToken);
+        this.http.setToken(session.token);
+
+        // Restore per-account token cache from persisted session
+        if (session.accountTokens) {
+          for (const [id, token] of Object.entries(session.accountTokens)) {
+            this.accountTokens.set(Number(id), token);
+          }
+        }
+
+        // Ensure current flag is set on restored accounts
+        const accounts = ensureCurrentFlag(session.accounts);
+
+        this.state = {
+          status: "session-imported",
+          token: session.token,
+          accounts,
+        };
+        return this.validateSession();
+      }
+
+      const creds = await this.store.loadCredentials();
+      if (creds) {
+        return this.login(creds.identifiant, creds.motdepasse, creds.fa);
+      }
+
+      return this.state; // still logged-out
+    } catch (error) {
       this.state = {
-        status: "session-imported",
-        token: session.token,
-        accounts: session.accounts,
+        status: "error",
+        message: `Session restore failed: ${formatError(error)}`,
+        recoverable: true,
       };
-      return this.validateSession();
+      return this.state;
     }
-
-    const creds = await this.store.loadCredentials();
-    if (creds) {
-      return this.login(creds.identifiant, creds.motdepasse);
-    }
-
-    return this.state; // still logged-out
   }
 
   // ── Logout ───────────────────────────────────────────────────
@@ -401,6 +519,8 @@ export class AuthService {
   async logout(): Promise<AuthState> {
     this.state = { status: "logged-out" };
     this.pendingPayload = undefined;
+    this.loginGtk = undefined;
+    this.clearAccountTokens();
     this.http.clearAuth();
     await this.store.clearSession();
     return this.state;
@@ -409,6 +529,8 @@ export class AuthService {
   async logoutFull(): Promise<AuthState> {
     this.state = { status: "logged-out" };
     this.pendingPayload = undefined;
+    this.loginGtk = undefined;
+    this.clearAccountTokens();
     this.http.clearAuth();
     await this.store.clearAll();
     return this.state;
@@ -424,54 +546,84 @@ export class AuthService {
   }
 
   private async fetchDoubleAuthChallenge(): Promise<AuthState> {
-    const res = await this.http.postForm(
-      doubleAuthUrl({ verb: "get", version: this.http.version }),
-      {},
-      { includeGtk: false },
-    );
-    this.http.captureAuthHeaders(res);
+    try {
+      const res = await this.http.postForm(
+        doubleAuthUrl({ verb: "get", version: this.http.version }),
+        {},
+        { includeGtk: false },
+      );
+      this.http.captureAuthHeaders(res);
 
-    const body = (await res.json()) as RawApiResponse;
-    const data = body.data as Record<string, unknown> | undefined;
-    const question = decodeBase64String(data?.question);
-    const propositions = Array.isArray(data?.propositions) ? data.propositions : [];
-    const choices = propositions.flatMap((value) => {
-      if (typeof value !== "string") return [];
-      return [{ label: decodeBase64String(value), value }];
-    });
+      const body = (await res.json()) as RawApiResponse;
+      const data = body.data as Record<string, unknown> | undefined;
+      const question = decodeBase64String(data?.question);
+      const propositions = Array.isArray(data?.propositions) ? data.propositions : [];
+      const choices = propositions.flatMap((value) => {
+        if (typeof value !== "string") return [];
+        return [{ label: decodeBase64String(value), value }];
+      });
 
-    if (body.code !== ApiCode.OK || !question || choices.length === 0) {
+      if (body.code !== ApiCode.OK || !question || choices.length === 0) {
+        this.state = {
+          status: "error",
+          message: body.message || "Unable to fetch identity verification challenge",
+          recoverable: true,
+        };
+        return this.state;
+      }
+
+      this.state = {
+        status: "doubleauth-required",
+        question,
+        choices,
+      };
+      return this.state;
+    } catch (error) {
       this.state = {
         status: "error",
-        message: body.message || "Unable to fetch identity verification challenge",
+        message: `Identity verification challenge failed: ${formatError(error)}`,
         recoverable: true,
       };
       return this.state;
     }
-
-    this.state = {
-      status: "doubleauth-required",
-      question,
-      choices,
-    };
-    return this.state;
   }
 
   private async completeAuthentication(
     body: RawApiResponse,
-    creds: { identifiant: string; motdepasse: string },
+    creds: StoredCredentials,
   ): Promise<AuthState> {
     const token = this.getResolvedToken(body.token);
     const accounts = applyCurrentAccount(extractAccounts(body), extractCurrentAccountId(body));
+
+    // Cache the initial token for the current account
+    this.clearAccountTokens();
+    const currentAccountId = accounts.find((a) => a.current === true)?.id;
+    if (currentAccountId !== undefined) {
+      this.accountTokens.set(currentAccountId, token);
+    }
+
     this.state = {
       status: "authenticated",
       token,
       accounts,
     };
     this.pendingPayload = undefined;
+    this.loginGtk = undefined;
     await this.persistSession(token, accounts);
     await this.store.saveCredentials(creds);
     return this.state;
+  }
+
+  private async replayLogin(payload: LoginPayload): Promise<RawApiResponse> {
+    if (this.loginGtk) this.http.setGtk(this.loginGtk);
+
+    const res = await this.http.postForm(
+      loginUrl({ version: this.http.version }),
+      payload as unknown as Record<string, unknown>,
+      { includeToken: false, includeTwoFaToken: false },
+    );
+    this.http.captureAuthHeaders(res);
+    return (await res.json()) as RawApiResponse;
   }
 
   private getResolvedToken(fallback?: string): string {
@@ -479,17 +631,48 @@ export class AuthService {
   }
 
   private async persistSession(token: string, accounts: AccountInfo[]): Promise<void> {
+    const accountTokens: Record<number, string> = {};
+    for (const [id, t] of this.accountTokens) {
+      accountTokens[id] = t;
+    }
     const session: StoredSession = {
       token,
       cookies: this.http.getCookies(),
       xGtk: this.http.getGtk(),
       twoFaToken: this.http.getTwoFaToken(),
       accounts,
+      ...(Object.keys(accountTokens).length > 0 ? { accountTokens } : {}),
       version: this.http.version,
       savedAt: new Date().toISOString(),
     };
     await this.store.saveSession(session);
   }
+}
+
+function normalizeLoginFactors(fa: unknown): LoginFactor[] {
+  if (!Array.isArray(fa)) return [];
+  return fa.flatMap((factor) => {
+    const candidate = factor as Record<string, unknown>;
+    if (typeof candidate.cn !== "string" || typeof candidate.cv !== "string") return [];
+    return [{
+      cn: candidate.cn,
+      cv: candidate.cv,
+      ...(typeof candidate.uniq === "boolean" ? { uniq: candidate.uniq } : {}),
+    }];
+  });
+}
+
+function buildStoredCredentials(
+  identifiant: string,
+  motdepasse: string,
+  fa?: LoginFactor[],
+): StoredCredentials {
+  const reusableFa = normalizeLoginFactors(fa);
+  return {
+    identifiant,
+    motdepasse,
+    ...(reusableFa.length > 0 ? { fa: reusableFa } : {}),
+  };
 }
 
 /** Best-effort extraction of account info from a successful login response. */
@@ -510,8 +693,11 @@ function extractCurrentAccountId(body: RawApiResponse): number | undefined {
 }
 
 function applyCurrentAccount(accounts: AccountInfo[], currentAccountId?: number): AccountInfo[] {
-  if (currentAccountId === undefined) return accounts;
-  return markCurrentAccount(accounts, currentAccountId);
+  if (currentAccountId !== undefined) return markCurrentAccount(accounts, currentAccountId);
+  // Login responses lack data.id — infer current from the main flag or first account
+  const inferredId = accounts.find((a) => a.main === true)?.id ?? accounts[0]?.id;
+  if (inferredId !== undefined) return markCurrentAccount(accounts, inferredId);
+  return accounts;
 }
 
 function markCurrentAccount(accounts: AccountInfo[], currentAccountId: number): AccountInfo[] {
@@ -570,7 +756,68 @@ function normalizeStudent(student: unknown) {
   }];
 }
 
+/**
+ * Ensure at least one account has `current: true`.
+ * If none does, infer from `main` flag or fall back to first account.
+ */
+function ensureCurrentFlag(accounts?: AccountInfo[]): AccountInfo[] {
+  if (!accounts || accounts.length === 0) return accounts ?? [];
+  const hasCurrent = accounts.some((a) => a.current === true);
+  if (hasCurrent) return accounts;
+  const inferredId = accounts.find((a) => a.main === true)?.id ?? accounts[0]?.id;
+  if (inferredId !== undefined) return markCurrentAccount(accounts, inferredId);
+  return accounts;
+}
+
+/**
+ * After a renewToken (account switch), merge any enriched account/student data
+ * from the response back into our existing account list. The renewToken response
+ * may contain updated profile/student data for the newly-active account.
+ */
+function mergeAccountsAfterSwitch(accounts: AccountInfo[], body: RawApiResponse): AccountInfo[] {
+  if (!body.data || typeof body.data !== "object") return accounts;
+  const data = body.data as Record<string, unknown>;
+  const rawAccounts = Array.isArray(data.accounts) ? data.accounts : undefined;
+  if (!rawAccounts || rawAccounts.length === 0) return accounts;
+
+  // Build a lookup of the freshly returned accounts keyed by id
+  const fresh = new Map<number, AccountInfo>();
+  for (const raw of rawAccounts) {
+    const normalized = normalizeAccount(raw);
+    if (normalized) fresh.set(normalized.id, normalized);
+  }
+
+  // Merge: prefer fresh student data when available, keep existing otherwise
+  return accounts.map((existing) => {
+    const update = fresh.get(existing.id);
+    if (!update) return existing;
+    return {
+      ...existing,
+      // Prefer fresh students if the response actually carried them
+      ...(update.students && update.students.length > 0 ? { students: update.students } : {}),
+      // Preserve establishment if fresh data has it
+      ...(update.establishment ? { establishment: update.establishment } : {}),
+    };
+  });
+}
+
 function decodeBase64String(value: unknown): string {
   if (typeof value !== "string" || value.length === 0) return "";
   return Buffer.from(value, "base64").toString("utf-8");
+}
+
+/** Format an error with its cause for actionable diagnostics. */
+function formatError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  if (error.name === "TimeoutError") {
+    return "Request timed out — the EcoleDirecte API did not respond in time";
+  }
+  const cause = error.cause;
+  if (cause instanceof Error) {
+    if (cause.name === "TimeoutError") {
+      return "Request timed out — the EcoleDirecte API did not respond in time";
+    }
+    return `${error.message} (${cause.message})`;
+  }
+  return error.message;
 }

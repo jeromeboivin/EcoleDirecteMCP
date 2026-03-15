@@ -113,6 +113,10 @@ function doubleAuthAnswerBody(): RawApiResponse {
   };
 }
 
+function doubleAuthReplayFa() {
+  return [{ cn: "cn-token", cv: "cv-token", uniq: false }];
+}
+
 function probeBody(token = "probe-body-token"): RawApiResponse {
   return {
     code: ApiCode.OK,
@@ -206,7 +210,7 @@ describe("AuthService", () => {
       if (result.status === "authenticated") {
         expect(result.token).toBe("header-token");
         expect(result.accounts).toEqual([
-          { id: 1, type: "1", name: "Jane Doe", establishment: "Lycee" },
+          { id: 1, type: "1", name: "Jane Doe", establishment: "Lycee", current: true },
         ]);
       }
       expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
@@ -254,6 +258,38 @@ describe("AuthService", () => {
         expect(result.choices.map((choice) => choice.label)).toEqual(["2011", "2012"]);
       }
     });
+
+    it("returns a recoverable error when bootstrap fetch fails", async () => {
+      const http = makeHttp([]);
+      vi.mocked(http.get).mockRejectedValue(new TypeError("fetch failed"));
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Login failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
+    });
+
+    it("returns a recoverable error when login POST fetch fails", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+      ]);
+      vi.mocked(http.postForm).mockRejectedValue(new TypeError("fetch failed"));
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Login failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
+    });
   });
 
   describe("submitTotp", () => {
@@ -273,6 +309,14 @@ describe("AuthService", () => {
       if (result.status === "authenticated") {
         expect(result.token).toBe("final-token");
       }
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/v3/login.awp?v=4.96.3"),
+        expect.objectContaining({
+          fa: [{ cv: "123456", cn: "" }],
+        }),
+        { includeToken: false, includeTwoFaToken: false },
+      );
       expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
     });
 
@@ -286,6 +330,25 @@ describe("AuthService", () => {
         message: "No pending TOTP challenge",
         recoverable: false,
       });
+    });
+
+    it("returns a recoverable error when TOTP replay fetch fails", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(totpLoginBody(), { "X-Token": "intermediate-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+      await svc.login("user", "pass");
+
+      vi.mocked(http.postForm).mockRejectedValue(new TypeError("fetch failed"));
+      const result = await svc.submitTotp("123456");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "TOTP submission failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
     });
   });
 
@@ -323,14 +386,28 @@ describe("AuthService", () => {
       expect(store.saveSession).toHaveBeenCalledWith(
         expect.objectContaining({ token: "final-token", twoFaToken: "twofa-final" }),
       );
+      expect(store.saveCredentials).toHaveBeenCalledWith({
+        identifiant: "user",
+        motdepasse: "pass",
+        fa: doubleAuthReplayFa(),
+      });
       expect(http.postForm).toHaveBeenNthCalledWith(
         4,
         expect.stringContaining("/v3/login.awp?v=4.96.3"),
         expect.objectContaining({
-          cn: "cn-token",
-          cv: "cv-token",
-          fa: [{ cn: "cn-token", cv: "cv-token", uniq: false }],
+          fa: doubleAuthReplayFa(),
         }),
+        { includeToken: false, includeTwoFaToken: false },
+      );
+
+      const finalLoginPayload = vi.mocked(http.postForm).mock.calls[3]?.[1] as Record<string, unknown>;
+      expect(finalLoginPayload).not.toHaveProperty("cn");
+      expect(finalLoginPayload).not.toHaveProperty("cv");
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        3,
+        expect.stringContaining("/v3/connexion/doubleauth.awp?verbe=post&v=4.96.3"),
+        { choix: Buffer.from("2012").toString("base64") },
+        { includeGtk: false },
       );
     });
 
@@ -358,6 +435,155 @@ describe("AuthService", () => {
         recoverable: true,
       });
     });
+
+    it("returns an error when the final login returns invalid credentials (505)", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-1",
+        }),
+        mockResponse(doubleAuthQuestionBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-2",
+        }),
+        mockResponse(doubleAuthAnswerBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-3",
+        }),
+        mockResponse(errorBody(ApiCode.INVALID_CREDENTIALS, "Vos identifiants sont incorrects"), {
+          "X-Token": "error-token",
+          "2FA-Token": "twofa-error",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("Vos identifiants sont incorrects");
+        expect(result.recoverable).toBe(true);
+      }
+    });
+
+    it("returns an error when the challenge answer is missing cn/cv", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-1",
+        }),
+        mockResponse(doubleAuthQuestionBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-2",
+        }),
+        // Answer response with OK code but missing cn/cv
+        mockResponse({ code: ApiCode.OK, token: "", message: "", data: {} }, {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-3",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Identity verification failed",
+        recoverable: true,
+      });
+    });
+
+    it("returns an error when the challenge answer POST fails", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-1",
+        }),
+        mockResponse(doubleAuthQuestionBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-2",
+        }),
+        mockResponse(errorBody(ApiCode.INVALID_CREDENTIALS, "Verification refused"), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-3",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Verification refused",
+        recoverable: true,
+      });
+    });
+
+    it("preserves the login GTK when doubleauth responses include a different X-GTK", async () => {
+      const http = makeHttp([
+        // Bootstrap — sets initial GTK
+        mockResponse({ code: 200, token: "", message: "" }, { "X-GTK": "bootstrap-gtk" }),
+        // Initial login — preserves GTK
+        mockResponse(doubleAuthLoginBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-1",
+        }),
+        // Challenge GET — returns a DIFFERENT X-GTK that should not corrupt final login
+        mockResponse(doubleAuthQuestionBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-2",
+          "X-GTK": "rotated-gtk-from-challenge",
+        }),
+        // Challenge POST answer
+        mockResponse(doubleAuthAnswerBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-3",
+        }),
+        // Final login replay
+        mockResponse(successBody({ token: "cas-token" }), {
+          "X-Token": "final-token",
+          "2FA-Token": "twofa-final",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result.status).toBe("authenticated");
+      // Verify the GTK was restored before the final login
+      expect(http.setGtk).toHaveBeenLastCalledWith("bootstrap-gtk");
+    });
+
+    it("returns a recoverable error when challenge fetch fails", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthQuestionBody()),
+      ]);
+      const svc = new AuthService(http, makeStore());
+      await svc.login("user", "pass");
+
+      vi.mocked(http.postForm).mockRejectedValue(new TypeError("fetch failed"));
+      const result = await svc.submitDoubleAuthChoice(1);
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Identity verification failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
+    });
   });
 
   describe("importSession + validateSession", () => {
@@ -366,7 +592,7 @@ describe("AuthService", () => {
       cookies: { GTK: "cookie-gtk" },
       xGtk: "gtk-header",
       twoFaToken: "twofa-imported",
-      accounts: [{ id: 1, type: "1", name: "Jane Doe", establishment: "Lycee" }],
+      accounts: [{ id: 1, type: "1", name: "Jane Doe", establishment: "Lycee", current: true }],
       version: "4.96.3",
       savedAt: "2026-01-01T00:00:00.000Z",
     };
@@ -414,13 +640,74 @@ describe("AuthService", () => {
     });
   });
 
+  describe("loginFromStore", () => {
+    it("logs in using credentials loaded from the store", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "header-token" }),
+      ]);
+      const store = makeStore();
+      vi.mocked(store.loadCredentials).mockResolvedValue({ identifiant: "user", motdepasse: "pass" });
+      const svc = new AuthService(http, store);
+
+      const result = await svc.loginFromStore();
+
+      expect(result.status).toBe("authenticated");
+      if (result.status === "authenticated") {
+        expect(result.token).toBe("header-token");
+      }
+      expect(store.loadCredentials).toHaveBeenCalled();
+    });
+
+    it("reuses persisted fa from credentials and retries cleanly when it is stale", async () => {
+      const staleFa = [{ cn: "stale-cn", cv: "stale-cv", uniq: false }];
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(errorBody(ApiCode.INVALID_CREDENTIALS, "Votre mot de passe de confirmation est incorrect !")),
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "header-token" }),
+      ]);
+      const store = makeStore();
+      vi.mocked(store.loadCredentials).mockResolvedValue({ identifiant: "user", motdepasse: "pass", fa: staleFa });
+      const svc = new AuthService(http, store);
+
+      const result = await svc.loginFromStore();
+
+      expect(result.status).toBe("authenticated");
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        1,
+        expect.stringContaining("/v3/login.awp?v=4.96.3"),
+        expect.objectContaining({ fa: staleFa }),
+      );
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("/v3/login.awp?v=4.96.3"),
+        expect.objectContaining({ fa: [] }),
+      );
+      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
+    });
+
+    it("returns an actionable error when no credentials file exists", async () => {
+      const svc = new AuthService(makeHttp([]), makeStore());
+
+      const result = await svc.loginFromStore();
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("No credentials file found");
+        expect(result.message).toContain("ECOLEDIRECTE_CREDENTIALS_FILE");
+        expect(result.recoverable).toBe(true);
+      }
+    });
+  });
+
   describe("restore", () => {
     it("restores and validates a persisted session", async () => {
       const session: StoredSession = {
         token: "saved-token",
         cookies: { GTK: "cookie-gtk" },
         twoFaToken: "twofa-saved",
-        accounts: [{ id: 1, type: "1", name: "Jane Doe" }],
+        accounts: [{ id: 1, type: "1", name: "Jane Doe", current: true }],
         version: "4.96.3",
         savedAt: "2026-01-01T00:00:00.000Z",
       };
@@ -446,6 +733,40 @@ describe("AuthService", () => {
       const result = await svc.restore();
 
       expect(result.status).toBe("logged-out");
+    });
+
+    it("auto-logs in from saved credentials when session is absent", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "relogin-token" }),
+      ]);
+      const store = makeStore();
+      vi.mocked(store.loadSession).mockResolvedValue(undefined);
+      vi.mocked(store.loadCredentials).mockResolvedValue({ identifiant: "user", motdepasse: "pass" });
+      const svc = new AuthService(http, store);
+
+      const result = await svc.restore();
+
+      expect(result.status).toBe("authenticated");
+      if (result.status === "authenticated") {
+        expect(result.token).toBe("relogin-token");
+      }
+    });
+
+    it("returns a recoverable error when restore fails due to a network error", async () => {
+      const http = makeHttp([]);
+      const store = makeStore();
+      vi.mocked(store.loadSession).mockRejectedValue(new TypeError("fetch failed"));
+      const svc = new AuthService(http, store);
+
+      const result = await svc.restore();
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Session restore failed: fetch failed",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
     });
   });
 
@@ -592,6 +913,118 @@ describe("AuthService", () => {
       expect(result.status).toBe("logged-out");
       expect(store.clearAll).toHaveBeenCalled();
       expect(http.clearAuth).toHaveBeenCalled();
+    });
+  });
+
+  describe("login dedup", () => {
+    it("deduplicates concurrent login calls", async () => {
+      let resolveFetch!: (res: Response) => void;
+      const bootstrapPromise = new Promise<Response>((resolve) => {
+        resolveFetch = resolve;
+      });
+
+      const http = makeHttp([
+        mockResponse(successBody(), { "X-Token": "header-token" }),
+      ]);
+      vi.mocked(http.get).mockReturnValueOnce(bootstrapPromise);
+
+      const svc = new AuthService(http, makeStore());
+
+      // Start two logins concurrently
+      const p1 = svc.login("user", "pass");
+      const p2 = svc.login("user", "pass");
+
+      // Resolve the bootstrap fetch
+      resolveFetch(mockResponse({ code: 200, token: "", message: "" }));
+
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect(r1.status).toBe("authenticated");
+      expect(r2.status).toBe("authenticated");
+
+      // Only one bootstrap GET was made (proving dedup)
+      expect(http.get).toHaveBeenCalledTimes(1);
+    });
+
+    it("allows a new login after the previous one completes", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ token: "t1" }), { "X-Token": "token-1" }),
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ token: "t2" }), { "X-Token": "token-2" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      const r1 = await svc.login("user", "pass");
+      expect(r1.status).toBe("authenticated");
+
+      const r2 = await svc.login("user", "pass");
+      expect(r2.status).toBe("authenticated");
+
+      expect(http.get).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("error formatting", () => {
+    it("includes error.cause in login error messages", async () => {
+      const http = makeHttp([]);
+      const fetchError = new TypeError("fetch failed");
+      (fetchError as TypeError & { cause: Error }).cause = new Error("connect ECONNREFUSED 127.0.0.1:443");
+      vi.mocked(http.get).mockRejectedValue(fetchError);
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toBe("Login failed: fetch failed (connect ECONNREFUSED 127.0.0.1:443)");
+      }
+    });
+
+    it("formats TimeoutError as a readable timeout message", async () => {
+      const http = makeHttp([]);
+      const timeoutError = new DOMException("The operation was aborted", "TimeoutError");
+      vi.mocked(http.get).mockRejectedValue(timeoutError);
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("timed out");
+      }
+    });
+
+    it("formats a wrapped TimeoutError cause as a timeout message", async () => {
+      const http = makeHttp([]);
+      const timeoutCause = new DOMException("The operation timed out", "TimeoutError");
+      const fetchError = new TypeError("fetch failed");
+      (fetchError as TypeError & { cause: Error }).cause = timeoutCause;
+      vi.mocked(http.get).mockRejectedValue(fetchError);
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("timed out");
+      }
+    });
+  });
+
+  describe("loginFromStore error handling", () => {
+    it("catches store.loadCredentials errors and returns error state", async () => {
+      const http = makeHttp([]);
+      const store = makeStore();
+      vi.mocked(store.loadCredentials).mockRejectedValue(new Error("EACCES permission denied"));
+      const svc = new AuthService(http, store);
+
+      const result = await svc.loginFromStore();
+
+      expect(result.status).toBe("error");
+      if (result.status === "error") {
+        expect(result.message).toContain("EACCES permission denied");
+        expect(result.recoverable).toBe(true);
+      }
     });
   });
 });
