@@ -37,6 +37,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Teacher gradebook catalog** — returns the full gradebook navigation model (establishments, classes, groups, periods, subjects, council dates, attendance grid) through the authenticated `niveauxListe.awp` route.
 - **Teacher gradebook notes** — returns the populated grade grid for a selected class or group, period, and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp` route.
 - **Teacher gradebook appreciations** — returns per-student appreciation content plus predefined appreciation templates for a selected class or group and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp` and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
+- **Teacher council targets** — lists the principal-professor classes and available council periods exposed by `ConseilDeClasse`, derived from the authenticated `niveauxListe.awp` route.
+- **Teacher council detail** — returns council student rows, mention options, class appreciation settings, and both principal-professor and teacher predefined appreciation templates through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/conseilDeClasse.awp`, `Prof Principal/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp`, and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -173,6 +175,8 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `get_teacher_gradebook_catalog` | Get the full gradebook navigation catalog (establishments, classes, groups, periods, subjects, council dates, attendance grid) |
 | `get_teacher_gradebook_notes` | Get the populated grade grid for a selected class or group, period, and subject |
 | `get_teacher_gradebook_appreciations` | Get teacher appreciation data plus predefined appreciation templates for a selected class or group and subject |
+| `list_teacher_council_targets` | List principal-professor council classes and their available periods |
+| `get_teacher_council_detail` | Get council student rows, mention options, class appreciation settings, and predefined appreciation templates for a selected class and period |
 | `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
 | `logout_full` | Clear both session and saved credentials. Optional `profile`. |
 
@@ -276,6 +280,8 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Teacher gradebook notes** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp?verbe=get&v=4.96.3`
 - **Teacher gradebook appreciations** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp?verbe=get&v=4.96.3`
 - **Teacher predefined appreciations** → `POST /v3/Enseignant/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3`
+- **Teacher council detail** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/conseilDeClasse.awp?verbe=get&v=4.96.3`
+- **Teacher council predefined appreciations** → `POST /v3/Prof%20Principal/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3` and `POST /v3/Enseignant/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3`
 - Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
 
 ## Explicitly Out of Scope (v1)
@@ -320,6 +326,7 @@ src/
     │   ├── familyInvoices.ts         # Family invoices response normalization
     │   ├── teacherAttendance.ts      # Teacher attendance roster normalization
     │   ├── teacherClassStudents.ts   # Teacher class roster normalization
+    │   ├── teacherCouncil.ts         # Teacher conseil de classe normalization
     │   ├── teacherGradebookAppreciations.ts # Teacher appreciation normalization
     │   ├── teacherGradebookNotes.ts  # Teacher grade-grid normalization
     │   ├── teacherRooms.ts           # Teacher rooms normalization

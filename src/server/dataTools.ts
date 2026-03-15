@@ -23,6 +23,8 @@ import type {
   TeacherAttendanceRosterResult,
   TeacherAttendanceTargetsResult,
   TeacherClassStudentsResult,
+  TeacherCouncilDetailResult,
+  TeacherCouncilTargetsResult,
   TeacherEmploiDuTempsResult,
   TeacherGradebookAppreciationsResult,
   TeacherGradebookCatalogResult,
@@ -120,6 +122,13 @@ const teacherAttendanceRosterQuerySchema = {
   entityType: z.enum(["C", "G"]).optional(),
   startTime: z.string().regex(/^\d{2}:\d{2}$/),
   endTime: z.string().regex(/^\d{2}:\d{2}$/),
+};
+
+const teacherCouncilDetailQuerySchema = {
+  ...teacherQuerySchema,
+  entityId: z.number().int().positive(),
+  entityType: z.enum(["C", "G"]).optional(),
+  periodCode: z.string().min(1),
 };
 
 const teacherGradebookDetailQuerySchema = {
@@ -528,6 +537,28 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       return resultForTeacherGradebookAppreciations(result);
     }),
   );
+
+  server.tool(
+    "list_teacher_council_targets",
+    "List principal-professor council classes and their available periods. Uses niveauxListe and follows the observed ConseilDeClasse target filter.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_council_targets tool invoked");
+      const result = await data.listTeacherCouncilTargets(args);
+      return resultForTeacherCouncilTargets(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_council_detail",
+    "Get teacher council student rows, mention options, class appreciation settings, and predefined appreciation templates for a selected class and period. Use list_teacher_council_targets first to find entityId and periodCode.",
+    teacherCouncilDetailQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_council_detail tool invoked");
+      const result = await data.getTeacherCouncilDetail(args);
+      return resultForTeacherCouncilDetail(result);
+    }),
+  );
 }
 
 function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getFamilyDocuments"]>>) {
@@ -757,6 +788,27 @@ function resultForTeacherGradebookAppreciations(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherCouncilTargets(
+  result: Awaited<ReturnType<EdDataService["listTeacherCouncilTargets"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const periodCount = result.data.targets.reduce((sum, target) => sum + target.periods.length, 0);
+  const summary = `Council targets for ${result.data.teacher.name}: ${result.data.targets.length} class(es) with ${periodCount} available period(s).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherCouncilDetail(
+  result: Awaited<ReturnType<EdDataService["getTeacherCouncilDetail"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const targetLabel = result.data.target.label ?? result.data.target.code ?? `${result.data.target.entityType} ${result.data.target.id}`;
+  const mentionCount = result.data.settings.mentionOptions.length;
+  const ppTemplateCount = result.data.principalProfessorPredefinedAppreciations.length;
+  const teacherTemplateCount = result.data.teacherPredefinedAppreciations.length;
+  const summary = `Council detail for ${result.data.teacher.name}: ${result.data.studentCount} student(s), ${mentionCount} mention option(s), ${ppTemplateCount} principal-professor template(s), and ${teacherTemplateCount} teacher template(s) for ${targetLabel} (${result.data.selectedPeriod.code}).`;
+  return successResult(summary, result.data);
+}
+
 function countNonEmptyCategories(data: FamilyDocumentsResult): number {
   let count = 0;
   if (data.factures.length > 0) count++;
@@ -790,6 +842,8 @@ function successResult(
     | TeacherAttendanceRosterResult
     | TeacherAttendanceTargetsResult
     | TeacherClassStudentsResult
+    | TeacherCouncilDetailResult
+    | TeacherCouncilTargetsResult
     | TeacherEmploiDuTempsResult
     | TeacherGradebookAppreciationsResult
     | TeacherGradebookCatalogResult

@@ -257,3 +257,25 @@ export function teacherGradebookPredefinedAppreciationsUrl(
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/Enseignant/${teacherId}/${entityType}/${entityId}/appreciationsPredefinies.awp?verbe=get&v=${v}`;
 }
+
+export function teacherCouncilDetailUrl(
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  periodCode: string,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/conseilDeClasse.awp?verbe=get&v=${v}`;
+}
+
+export function teacherCouncilPredefinedAppreciationsUrl(
+  scope: "Enseignant" | "Prof Principal",
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/${encodeURIComponent(scope)}/${teacherId}/${entityType}/${entityId}/appreciationsPredefinies.awp?verbe=get&v=${v}`;
+}

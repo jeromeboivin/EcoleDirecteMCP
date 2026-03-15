@@ -17,6 +17,8 @@ import {
   studentProfileUrl,
   studentSessionsRdvUrl,
   teacherAttendanceRosterUrl,
+  teacherCouncilDetailUrl,
+  teacherCouncilPredefinedAppreciationsUrl,
   studentVieScolaireUrl,
   teacherClassStudentsUrl,
   teacherEmploiDuTempsUrl,
@@ -280,6 +282,31 @@ describe("teacherGradebookCatalogUrl", () => {
     const url = teacherGradebookCatalogUrl();
     expect(url).toBe(
       `${TEACHER_API_BASE}/${API_VERSION}/niveauxListe.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherCouncilDetailUrl", () => {
+  it("returns the teacher council detail endpoint on TEACHER_API_BASE", () => {
+    const url = teacherCouncilDetailUrl(221, "C", 67, "A003");
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/enseignants/221/C/67/periodes/A003/conseilDeClasse.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherCouncilPredefinedAppreciationsUrl", () => {
+  it("returns the principal-professor predefined appreciations endpoint", () => {
+    const url = teacherCouncilPredefinedAppreciationsUrl("Prof Principal", 221, "C", 67);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/Prof%20Principal/221/C/67/appreciationsPredefinies.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+
+  it("returns the teacher predefined appreciations endpoint", () => {
+    const url = teacherCouncilPredefinedAppreciationsUrl("Enseignant", 221, "C", 67);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/Enseignant/221/C/67/appreciationsPredefinies.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });

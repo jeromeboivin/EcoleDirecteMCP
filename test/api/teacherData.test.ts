@@ -10,6 +10,7 @@ import {
   normalizeTeacherGradebookPredefinedAppreciationsResponse,
 } from "../../src/ecoledirecte/api/teacherGradebookAppreciations.js";
 import { normalizeTeacherGradebookNotesResponse } from "../../src/ecoledirecte/api/teacherGradebookNotes.js";
+import { normalizeTeacherCouncilResponse } from "../../src/ecoledirecte/api/teacherCouncil.js";
 
 describe("teacher data normalizers", () => {
   describe("normalizeTeacherAttendanceResponse", () => {
@@ -469,6 +470,124 @@ describe("teacher data normalizers", () => {
       expect(result.data?.establishments[0].classes[0].isPP).toBe(false);
     });
 
+    it("normalizes the nested live niveauxListe shape with top-level groups", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          etablissements: [
+            {
+              id: 6,
+              code: "LP",
+              libelle: "Lycée Pro",
+              parametres: {
+                grille: [{ heureDbt: "08:00", heureFin: "08:55" }],
+              },
+              niveaux: [
+                {
+                  id: 1,
+                  code: "TERM",
+                  libelle: "Terminale",
+                  classes: [
+                    {
+                      id: 67,
+                      idGroupe: 67,
+                      code: "TA",
+                      libelle: "Terminale A",
+                      isPP: true,
+                      periodes: [
+                        {
+                          codePeriode: "A003",
+                          libelle: "Trimestre 3",
+                          libelleCourt: "T3",
+                          etat: "ouvert",
+                          saisieAppreciation: true,
+                          saisieAppreciationClasse: true,
+                          dateDebut: "2026-02-23",
+                          dateFin: "2026-05-30",
+                          dateConseil: "2026-05-31",
+                          matieres: [
+                            {
+                              code: "VICLA",
+                              libelle: "Vie de classe",
+                              libelleCourt: "VICLA",
+                              avecNotation: true,
+                              isEditable: "Si non vide",
+                            },
+                          ],
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+          groupes: [
+            {
+              id: 1505,
+              etabId: 6,
+              code: "VICLA_TG6",
+              libelle: "Vie de classe TG6",
+              periodes: [
+                {
+                  codePeriode: "A003",
+                  libelle: "Trimestre 3",
+                  etat: "ouvert",
+                  saisieAppreciation: true,
+                  saisieAppreciationClasse: true,
+                  matieres: [],
+                },
+              ],
+            },
+          ],
+          autresGroupes: [],
+        },
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.establishments).toHaveLength(1);
+      expect(result.data?.establishments[0]?.label).toBe("Lycée Pro");
+      expect(result.data?.establishments[0]?.groups).toEqual([
+        {
+          id: 1505,
+          code: "VICLA_TG6",
+          label: "Vie de classe TG6",
+          typeEntity: "G",
+          periods: [
+            {
+              code: "A003",
+              label: "Trimestre 3",
+              state: "ouvert",
+              appreciationOpen: true,
+              classAppreciationOpen: true,
+              subjects: [],
+            },
+          ],
+        },
+      ]);
+      expect(result.data?.establishments[0]?.classes[0]?.periods[0]).toMatchObject({
+        code: "A003",
+        shortLabel: "T3",
+        state: "ouvert",
+        councilDate: "2026-05-31",
+        startDate: "2026-02-23",
+        endDate: "2026-05-30",
+        appreciationOpen: true,
+        classAppreciationOpen: true,
+      });
+      expect(result.data?.establishments[0]?.classes[0]?.periods[0]?.subjects[0]).toMatchObject({
+        code: "VICLA",
+        shortLabel: "VICLA",
+        isEditable: true,
+        editability: "Si non vide",
+      });
+      expect(result.data?.attendanceGrid).toEqual([{ start: "08:00", end: "08:55" }]);
+    });
+
     it("returns failure for non-OK code", () => {
       const raw: RawApiResponse = {
         code: ApiCode.EXPIRED_KEY,
@@ -689,6 +808,91 @@ describe("teacher data normalizers", () => {
           authorId: 221,
         },
       ]);
+    });
+  });
+
+  describe("normalizeTeacherCouncilResponse", () => {
+    it("normalizes council students, settings, and decodes appreciations", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          eleves: [
+            {
+              id: 5517,
+              prenom: "Maxime",
+              nom: "BISI",
+              photo: "//photo.jpg",
+              ordreArrivee: "A",
+              sexe: "M",
+              dispositifs: [],
+              appreciationPP: {
+                id: "5517,Prof Principal,A003,",
+                code: "",
+                libelle: "",
+                date: "2026-03-05 09:19:15",
+                text: "QnJhdm8gcG91ciBsZXMgZWZmb3J0cyE=",
+              },
+              appreciationCE: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+              appreciationVS: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+              appreciationCN: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+              mentionDuConseil: { id: "2", code: "", libelle: "Encouragements", date: "2026-03-15 14:09:02", text: "" },
+            },
+          ],
+          parametrage: {
+            PPModifVS: true,
+            PPModifTout: true,
+            saisieAppreciationClasse: true,
+            longueurMaxAppPP: 400,
+            mentions: [
+              { id: 2, libelle: "Encouragements", numLigne: 1 },
+            ],
+            appreciations: [
+              { code: "APP1", id: 1, libelle: "Appréciation générale", nbCaracteres: 200 },
+            ],
+          },
+          appreciationGenerale: {
+            id: "APP1",
+            code: "APP1",
+            libelle: "Appréciation générale",
+            date: "2026-03-15 14:09:02",
+            text: "Q2xhc3NlIGludmVzdGllLg==",
+          },
+        },
+      };
+
+      const result = normalizeTeacherCouncilResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.studentCount).toBe(1);
+      expect(result.data?.students[0]).toMatchObject({
+        id: 5517,
+        name: "Maxime BISI",
+        appreciationPP: {
+          id: "5517,Prof Principal,A003,",
+          text: "Bravo pour les efforts!",
+        },
+        mentionDuConseil: {
+          id: "2",
+          label: "Encouragements",
+        },
+      });
+      expect(result.data?.settings).toEqual({
+        principalProfessorCanEditSchoolLife: true,
+        principalProfessorCanEditAll: true,
+        classAppreciationEditable: true,
+        principalProfessorMaxCharacters: 400,
+        mentionOptions: [{ id: 2, label: "Encouragements", lineNumber: 1 }],
+        appreciationSettings: [{ code: "APP1", id: 1, label: "Appréciation générale", maxCharacters: 200 }],
+      });
+      expect(result.data?.generalAppreciation).toEqual({
+        id: "APP1",
+        code: "APP1",
+        label: "Appréciation générale",
+        date: "2026-03-15 14:09:02",
+        text: "Classe investie.",
+      });
     });
   });
 });

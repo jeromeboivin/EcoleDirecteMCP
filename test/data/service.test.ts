@@ -1204,6 +1204,95 @@ describe("teacher gradebook catalog", () => {
     );
   });
 
+  it("supports the nested live niveauxListe shape", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 6,
+            code: "LP",
+            libelle: "Lycée Pro",
+            parametres: {
+              grille: [{ heureDbt: "08:00", heureFin: "08:55" }],
+            },
+            niveaux: [
+              {
+                id: 1,
+                code: "TERM",
+                libelle: "Terminale",
+                classes: [
+                  {
+                    id: 85,
+                    idGroupe: 85,
+                    code: "3PA",
+                    libelle: "3ème Prépa Apprenti",
+                    isPP: true,
+                    periodes: [
+                      {
+                        codePeriode: "A003",
+                        libelle: "Trimestre 3",
+                        libelleCourt: "T3",
+                        etat: "ouvert",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateDebut: "2026-02-23",
+                        dateFin: "2026-05-30",
+                        dateConseil: "2026-05-31",
+                        matieres: [
+                          { code: "FRANC", libelle: "Français", libelleCourt: "FR", avecNotation: true, isEditable: "Si non vide" },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        groupes: [
+          {
+            id: 1505,
+            etabId: 6,
+            code: "VICLA_TG6",
+            libelle: "Vie de classe TG6",
+            periodes: [
+              {
+                codePeriode: "A003",
+                libelle: "Trimestre 3",
+                etat: "ouvert",
+                saisieAppreciation: true,
+                saisieAppreciationClasse: true,
+                matieres: [],
+              },
+            ],
+          },
+        ],
+        autresGroupes: [],
+      },
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookCatalog();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.establishments[0]?.classes[0]?.periods[0]).toMatchObject({
+        code: "A003",
+        shortLabel: "T3",
+        state: "ouvert",
+        classAppreciationOpen: true,
+      });
+      expect(result.data.establishments[0]?.groups[0]?.id).toBe(1505);
+      expect(result.data.establishments[0]?.groups[0]?.periods[0]?.state).toBe("ouvert");
+    }
+  });
+
   it("returns failure when not authenticated as teacher", async () => {
     const http = makeHttp([]);
     const auth = makeAuth(authenticatedState);
@@ -1400,6 +1489,319 @@ describe("teacher gradebook catalog", () => {
     );
     expect(http.postForm).toHaveBeenNthCalledWith(
       2,
+      expect.stringContaining("/v3/Enseignant/221/C/85/appreciationsPredefinies.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("lists teacher council targets from principal-professor classes", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 6,
+            code: "LP",
+            libelle: "Lycée Pro",
+            parametres: {
+              grille: [{ heureDbt: "08:00", heureFin: "08:55" }],
+            },
+            niveaux: [
+              {
+                id: 1,
+                code: "TERM",
+                libelle: "Terminale",
+                classes: [
+                  {
+                    id: 85,
+                    idGroupe: 85,
+                    code: "3PA",
+                    libelle: "3ème Prépa Apprenti",
+                    isPP: true,
+                    periodes: [
+                      {
+                        codePeriode: "A001",
+                        libelle: "Trimestre 1",
+                        etat: "cloture",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateConseil: "2025-12-05",
+                        matieres: [],
+                      },
+                      {
+                        codePeriode: "A003",
+                        libelle: "Trimestre 3",
+                        etat: "ouvert",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateConseil: "2026-05-31",
+                        matieres: [],
+                      },
+                    ],
+                  },
+                  {
+                    id: 86,
+                    idGroupe: 86,
+                    code: "2PA",
+                    libelle: "Deuxième Prépa",
+                    isPP: false,
+                    periodes: [
+                      {
+                        codePeriode: "A003",
+                        libelle: "Trimestre 3",
+                        etat: "ouvert",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateConseil: "2026-05-31",
+                        matieres: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        groupes: [
+          {
+            id: 1505,
+            etabId: 6,
+            code: "VICLA_TG6",
+            libelle: "Vie de classe TG6",
+            periodes: [
+              {
+                codePeriode: "A003",
+                libelle: "Trimestre 3",
+                etat: "ouvert",
+                saisieAppreciation: true,
+                saisieAppreciationClasse: true,
+                matieres: [],
+              },
+            ],
+          },
+        ],
+        autresGroupes: [],
+      },
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listTeacherCouncilTargets();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.targets).toEqual([
+        {
+          id: 85,
+          entityType: "C",
+          code: "3PA",
+          label: "3ème Prépa Apprenti",
+          isPP: true,
+          periods: [
+            {
+              code: "A001",
+              label: "Trimestre 1",
+              state: "cloture",
+              councilDate: "2025-12-05",
+              appreciationOpen: true,
+              classAppreciationOpen: true,
+            },
+            {
+              code: "A003",
+              label: "Trimestre 3",
+              state: "ouvert",
+              councilDate: "2026-05-31",
+              appreciationOpen: true,
+              classAppreciationOpen: true,
+            },
+          ],
+        },
+      ]);
+    }
+  });
+
+  it("fetches teacher council detail with both template scopes", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 6,
+            code: "LP",
+            libelle: "Lycée Pro",
+            parametres: { grille: [] },
+            niveaux: [
+              {
+                id: 1,
+                code: "TERM",
+                libelle: "Terminale",
+                classes: [
+                  {
+                    id: 85,
+                    idGroupe: 85,
+                    code: "3PA",
+                    libelle: "3ème Prépa Apprenti",
+                    isPP: true,
+                    periodes: [
+                      {
+                        codePeriode: "A003",
+                        libelle: "Trimestre 3",
+                        etat: "ouvert",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateConseil: "2026-05-31",
+                        matieres: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        groupes: [],
+        autresGroupes: [],
+      },
+    };
+
+    const councilBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        eleves: [
+          {
+            id: 6099,
+            prenom: "Irem",
+            nom: "AKYOL",
+            photo: "//photo.jpg",
+            ordreArrivee: "A",
+            sexe: "F",
+            dispositifs: [],
+            appreciationPP: {
+              id: "6099,Prof Principal,A003,",
+              code: "",
+              libelle: "",
+              date: "2026-03-05 09:19:15",
+              text: "QnJhdm8gcG91ciBsZXMgZWZmb3J0cyE=",
+            },
+            appreciationCE: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+            appreciationVS: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+            appreciationCN: { id: "", code: "", libelle: "", date: "2026-03-15 14:09:02", text: "" },
+            mentionDuConseil: { id: "2", code: "", libelle: "Encouragements", date: "2026-03-15 14:09:02", text: "" },
+          },
+        ],
+        parametrage: {
+          PPModifVS: true,
+          PPModifTout: true,
+          saisieAppreciationClasse: true,
+          longueurMaxAppPP: 400,
+          mentions: [
+            { id: 2, libelle: "Encouragements", numLigne: 1 },
+          ],
+          appreciations: [
+            { code: "APP1", id: 1, libelle: "Appréciation générale", nbCaracteres: 200 },
+          ],
+        },
+        appreciationGenerale: {
+          id: "APP1",
+          code: "APP1",
+          libelle: "Appréciation générale",
+          date: "2026-03-15 14:09:02",
+          text: "Q2xhc3NlIGludmVzdGllLg==",
+        },
+      },
+    };
+
+    const ppTemplatesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        appreciations: [],
+        parametrage: { nbCaractMax: 200 },
+      },
+    };
+
+    const teacherTemplatesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        appreciations: [
+          {
+            id: 2,
+            code: "TB",
+            libelle: "Qydlc3QgdHLDqHMgYmllbiw=",
+            type: "Enseignant",
+            idAuteur: 221,
+          },
+        ],
+        parametrage: { nbCaractMax: 200 },
+      },
+    };
+
+    const http = makeHttp([catalogBody, councilBody, ppTemplatesBody, teacherTemplatesBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherCouncilDetail({
+      entityId: 85,
+      periodCode: "A003",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.target).toEqual({
+        id: 85,
+        entityType: "C",
+        code: "3PA",
+        label: "3ème Prépa Apprenti",
+        isPP: true,
+      });
+      expect(result.data.selectedPeriod).toMatchObject({
+        code: "A003",
+        label: "Trimestre 3",
+        state: "ouvert",
+      });
+      expect(result.data.studentCount).toBe(1);
+      expect(result.data.students[0]?.appreciationPP?.text).toBe("Bravo pour les efforts!");
+      expect(result.data.settings.mentionOptions[0]).toEqual({ id: 2, label: "Encouragements", lineNumber: 1 });
+      expect(result.data.generalAppreciation?.text).toBe("Classe investie.");
+      expect(result.data.principalProfessorPredefinedAppreciations).toEqual([]);
+      expect(result.data.principalProfessorMaxCharacters).toBe(200);
+      expect(result.data.teacherPredefinedAppreciations[0]?.label).toBe("C'est très bien,");
+      expect(result.data.teacherMaxCharacters).toBe(200);
+    }
+
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("/v3/niveauxListe.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/v3/enseignants/221/C/85/periodes/A003/conseilDeClasse.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      3,
+      expect.stringContaining("/v3/Prof%20Principal/221/C/85/appreciationsPredefinies.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      4,
       expect.stringContaining("/v3/Enseignant/221/C/85/appreciationsPredefinies.awp"),
       {},
       { includeGtk: false },

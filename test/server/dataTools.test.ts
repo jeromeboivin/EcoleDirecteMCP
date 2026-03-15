@@ -373,6 +373,50 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         maxCharacters: 200,
       },
     }),
+    listTeacherCouncilTargets: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        targets: [
+          {
+            id: 67,
+            entityType: "C",
+            code: "TA",
+            label: "Terminale A",
+            isPP: true,
+            periods: [
+              { code: "A001", label: "Trimestre 1", state: "cloture", appreciationOpen: true, classAppreciationOpen: true },
+              { code: "A003", label: "Trimestre 3", state: "ouvert", appreciationOpen: true, classAppreciationOpen: true },
+            ],
+          },
+        ],
+      },
+    }),
+    getTeacherCouncilDetail: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        target: { id: 67, entityType: "C", code: "TA", label: "Terminale A", isPP: true },
+        selectedPeriod: { code: "A003", label: "Trimestre 3", state: "ouvert", appreciationOpen: true, classAppreciationOpen: true },
+        students: [{ id: 4018, name: "Gulseren BASAGAC", dispositifs: [], appreciationPP: { text: "Bravo" } }],
+        studentCount: 1,
+        settings: {
+          principalProfessorCanEditSchoolLife: true,
+          principalProfessorCanEditAll: true,
+          classAppreciationEditable: true,
+          principalProfessorMaxCharacters: 400,
+          mentionOptions: [{ id: 2, label: "Encouragements", lineNumber: 1 }],
+          appreciationSettings: [{ code: "APP1", id: 1, label: "Appréciation générale", maxCharacters: 200 }],
+        },
+        generalAppreciation: { text: "Classe investie." },
+        principalProfessorPredefinedAppreciations: [],
+        principalProfessorMaxCharacters: 200,
+        teacherPredefinedAppreciations: [{ id: 1, code: "TB", label: "Très bien" }],
+        teacherMaxCharacters: 200,
+      },
+    }),
     ...overrides,
   };
 }
@@ -668,6 +712,8 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("get_teacher_gradebook_catalog")).toBe(true);
     expect(server.handlers.has("get_teacher_gradebook_notes")).toBe(true);
     expect(server.handlers.has("get_teacher_gradebook_appreciations")).toBe(true);
+    expect(server.handlers.has("list_teacher_council_targets")).toBe(true);
+    expect(server.handlers.has("get_teacher_council_detail")).toBe(true);
   });
 
   it("registers get_teacher_gradebook_catalog and formats the summary", async () => {
@@ -788,6 +834,39 @@ describe("MCP data tools", () => {
       entityId: 85,
       periodCode: "A002",
       subjectCode: "FRANC",
+    });
+  });
+
+  it("registers list_teacher_council_targets and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("list_teacher_council_targets")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Council targets for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 class(es) with 2 available period(s)");
+    expect(data.listTeacherCouncilTargets).toHaveBeenCalled();
+  });
+
+  it("registers get_teacher_council_detail and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_council_detail")!({
+      entityId: 67,
+      periodCode: "A003",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Council detail for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 student(s), 1 mention option(s), 0 principal-professor template(s), and 1 teacher template(s)");
+    expect(result.content[0].text).toContain("Terminale A (A003)");
+    expect(data.getTeacherCouncilDetail).toHaveBeenCalledWith({
+      entityId: 67,
+      periodCode: "A003",
     });
   });
 });
