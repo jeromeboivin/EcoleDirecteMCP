@@ -120,4 +120,39 @@ describe("parseSessionFile", () => {
     await writeFile(file, "not json at all");
     await expect(parseSessionFile(file)).rejects.toThrow("not valid JSON");
   });
+
+  it("normalizes uid and isProfEtPersonnel for teacher accounts", async () => {
+    const file = join(dir, "session.json");
+    await writeFile(
+      file,
+      JSON.stringify({
+        token: "tok-teacher",
+        cookies: { GTK: "abc" },
+        accounts: [
+          {
+            id: 221,
+            idLogin: 99001,
+            typeCompte: "P",
+            nom: "DUPONT",
+            prenom: "Marie",
+            uid: "abc-uid-123",
+            isProfEtPersonnel: true,
+            main: true,
+            current: true,
+          },
+        ],
+      }),
+    );
+
+    const result = await parseSessionFile(file);
+
+    expect(result.accounts).toEqual([
+      expect.objectContaining({
+        id: 221,
+        type: "P",
+        uid: "abc-uid-123",
+        isProfEtPersonnel: true,
+      }),
+    ]);
+  });
 });

@@ -6,6 +6,7 @@ import {
   loginUrl,
   probeUrl,
   renewTokenUrl,
+  switchRoleUrl,
   telechargementUrl,
   classVieDeLaClasseUrl,
   studentCahierDeTextesDayUrl,
@@ -73,6 +74,13 @@ describe("renewTokenUrl", () => {
   it("returns the default renewtoken URL", () => {
     const url = renewTokenUrl();
     expect(url).toBe(`${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${DEFAULT_APP_VERSION}`);
+  });
+});
+
+describe("switchRoleUrl", () => {
+  it("returns the teacher/personnel role-switch URL on apip host", () => {
+    const url = switchRoleUrl();
+    expect(url).toBe(`${TEACHER_API_BASE}/${API_VERSION}/renewtoken.awp?verbe=put&v=${DEFAULT_APP_VERSION}`);
   });
 });
 

@@ -80,6 +80,8 @@ function normalizeAccounts(accounts: unknown): AccountInfo[] | undefined {
           ? candidate.nomEtablissement
           : undefined;
     const idLogin = typeof candidate.idLogin === "number" ? candidate.idLogin : undefined;
+    const uid = typeof candidate.uid === "string" && candidate.uid ? candidate.uid : undefined;
+    const isProfEtPersonnel = typeof candidate.isProfEtPersonnel === "boolean" ? candidate.isProfEtPersonnel : undefined;
     const main = typeof candidate.main === "boolean" ? candidate.main : undefined;
     const current = typeof candidate.current === "boolean" ? candidate.current : undefined;
     const students = normalizeStudents(candidate);
@@ -94,6 +96,8 @@ function normalizeAccounts(accounts: unknown): AccountInfo[] | undefined {
       name,
       ...(establishment ? { establishment } : {}),
       ...(idLogin !== undefined ? { idLogin } : {}),
+      ...(uid ? { uid } : {}),
+      ...(isProfEtPersonnel !== undefined ? { isProfEtPersonnel } : {}),
       ...(main !== undefined ? { main } : {}),
       ...(current !== undefined ? { current } : {}),
       ...(students ? { students } : {}),

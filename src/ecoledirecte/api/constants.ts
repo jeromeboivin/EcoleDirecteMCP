@@ -120,6 +120,12 @@ export function renewTokenUrl(opts: { version?: string } = {}): string {
   return `${API_BASE}/${API_VERSION}/renewtoken.awp?verbe=post&v=${v}`;
 }
 
+/** Role switch (teacher ↔ personnel) on the teacher/personnel API host. */
+export function switchRoleUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/renewtoken.awp?verbe=put&v=${v}`;
+}
+
 export function familyDocumentsUrl(opts: { archive?: string; version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   const archive = opts.archive ?? "";

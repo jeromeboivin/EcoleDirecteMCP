@@ -121,6 +121,18 @@ export function registerTools(server: McpServer, auth: AuthService): void {
       return toolResult(state, auth.getActiveProfile());
     },
   );
+
+  // ── switch_role ─────────────────────────────────────────────
+  server.tool(
+    "switch_role",
+    "Switch between teacher ('Enseignant', type P) and personnel ('Personnel', type A) roles. Only available for dual-role accounts (isProfEtPersonnel). Teacher mode shows only assigned classes; personnel mode shows all classes across establishments.",
+    { role: z.enum(["teacher", "personnel"]) },
+    async ({ role }) => {
+      log("info", `switch_role tool invoked: ${role}`);
+      const state = await auth.switchRole(role);
+      return toolResult(state, auth.getActiveProfile());
+    },
+  );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -161,7 +173,7 @@ function formatCurrentAccount(accounts: { name: string; establishment?: string; 
 }
 
 function formatAccountList(
-  accounts: { name: string; type: string; establishment?: string; current?: boolean; students?: { name: string; className?: string; establishment?: string }[]; classes?: { id: number }[]; modules?: string[] }[],
+  accounts: { name: string; type: string; establishment?: string; current?: boolean; isProfEtPersonnel?: boolean; students?: { name: string; className?: string; establishment?: string }[]; classes?: { id: number }[]; modules?: string[] }[],
 ): string {
   if (accounts.length === 0) return "none parsed";
   return accounts
@@ -169,6 +181,7 @@ function formatAccountList(
       let label = `${account.name} (${account.type})`;
       if (account.establishment) label += ` @ ${account.establishment}`;
       if (account.current) label += " [current]";
+      if (account.isProfEtPersonnel) label += " [dual-role: teacher/personnel]";
       if (account.students && account.students.length > 0) {
         const studentLabels = account.students.map((s) => {
           let sl = s.name;

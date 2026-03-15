@@ -11,7 +11,7 @@
  */
 
 import { EdHttpClient } from "../http/client.js";
-import { doubleAuthUrl, loginUrl, probeUrl, renewTokenUrl } from "../api/constants.js";
+import { doubleAuthUrl, loginUrl, probeUrl, renewTokenUrl, switchRoleUrl } from "../api/constants.js";
 import { ApiCode, normalizeLoginResponse, normalizeProbeResponse, type RawApiResponse } from "../api/normalize.js";
 import type { AuthStore } from "./store.js";
 import type {
@@ -500,6 +500,102 @@ export class AuthService {
     }
   }
 
+  /**
+   * Switch between teacher (P) and personnel (A) roles for dual-role accounts.
+   *
+   * Uses a dedicated renewtoken endpoint on apip.ecoledirecte.com with verbe=put,
+   * which is distinct from the family account-switch endpoint (verbe=post on api.ecoledirecte.com).
+   */
+  async switchRole(role: "teacher" | "personnel"): Promise<AuthState> {
+    const current = this.state.status === "session-imported" ? await this.validateSession() : this.state;
+    if (current.status !== "authenticated") {
+      return current;
+    }
+
+    const targetType = role === "teacher" ? "P" : "A";
+
+    // Find the current account (must be a teacher or personnel account with uid)
+    const account = current.accounts.find((a) => a.current === true);
+    if (!account) {
+      this.state = {
+        status: "error",
+        message: "No current account found. Authenticate first.",
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    if (!account.isProfEtPersonnel) {
+      this.state = {
+        status: "error",
+        message: "This account does not support role switching. Only accounts with both teacher and personnel roles can switch.",
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    if (account.type === targetType) {
+      // Already in the requested role
+      return current;
+    }
+
+    if (!account.uid) {
+      this.state = {
+        status: "error",
+        message: "Role switching requires uid metadata. Re-import a browser session that includes uid or authenticate again.",
+        recoverable: true,
+      };
+      return this.state;
+    }
+
+    try {
+      const res = await this.http.postForm(
+        switchRoleUrl({ version: this.http.version }),
+        { profil: targetType, uid: account.uid, uuid: "" },
+        { includeGtk: false },
+      );
+      this.http.captureAuthHeaders(res);
+
+      const body = (await res.json()) as RawApiResponse;
+      if (body.code !== ApiCode.OK) {
+        this.state = {
+          status: "error",
+          message: body.message || `Unable to switch to ${role} role.`,
+          recoverable: true,
+        };
+        return this.state;
+      }
+
+      const token = this.getResolvedToken(body.token);
+
+      // The response carries a full updated account list — rebuild from fresh data
+      const freshAccounts = extractAccounts(body);
+      const currentAccountId = extractCurrentAccountId(body) ?? account.id;
+      const accounts = applyCurrentAccount(
+        freshAccounts.length > 0 ? freshAccounts : current.accounts,
+        currentAccountId,
+      );
+
+      // Cache the token for the switched role
+      this.accountTokens.set(currentAccountId, token);
+
+      this.state = {
+        status: "authenticated",
+        token,
+        accounts,
+      };
+      await this.persistSession(token, accounts);
+      return this.state;
+    } catch (error) {
+      this.state = {
+        status: "error",
+        message: `Role switch failed: ${formatError(error)}`,
+        recoverable: true,
+      };
+      return this.state;
+    }
+  }
+
   /** Invalidate per-account token cache (e.g. after session expired). */
   private clearAccountTokens(): void {
     this.accountTokens.clear();
@@ -787,6 +883,8 @@ function normalizeAccount(account: unknown): AccountInfo | undefined {
     name,
     ...(typeof candidate.nomEtablissement === "string" ? { establishment: candidate.nomEtablissement } : {}),
     ...(typeof candidate.idLogin === "number" ? { idLogin: candidate.idLogin } : {}),
+    ...(typeof candidate.uid === "string" && candidate.uid ? { uid: candidate.uid } : {}),
+    ...(typeof candidate.isProfEtPersonnel === "boolean" ? { isProfEtPersonnel: candidate.isProfEtPersonnel } : {}),
     ...(typeof candidate.main === "boolean" ? { main: candidate.main } : {}),
     ...(typeof candidate.current === "boolean" ? { current: candidate.current } : {}),
     ...(students && students.length > 0 ? { students } : {}),
@@ -859,6 +957,9 @@ function mergeAccountsAfterSwitch(accounts: AccountInfo[], body: RawApiResponse)
       ...(update.students && update.students.length > 0 ? { students: update.students } : {}),
       // Preserve establishment if fresh data has it
       ...(update.establishment ? { establishment: update.establishment } : {}),
+      // Preserve uid and isProfEtPersonnel if fresh data has them
+      ...(update.uid ? { uid: update.uid } : {}),
+      ...(update.isProfEtPersonnel !== undefined ? { isProfEtPersonnel: update.isProfEtPersonnel } : {}),
       // Preserve teacher metadata if fresh data has it
       ...(update.classes && update.classes.length > 0 ? { classes: update.classes } : {}),
       ...(update.groups && update.groups.length > 0 ? { groups: update.groups } : {}),

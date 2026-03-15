@@ -38,6 +38,7 @@ function stubAuth(state: AuthState) {
     validateSession: vi.fn().mockResolvedValue(state),
     logout: vi.fn().mockResolvedValue({ status: "logged-out" } as AuthState),
     logoutFull: vi.fn().mockResolvedValue({ status: "logged-out" } as AuthState),
+    switchRole: vi.fn().mockResolvedValue(state),
     restore: vi.fn().mockResolvedValue(state),
   };
 }
@@ -191,5 +192,41 @@ describe("MCP tool responses", () => {
 
     expect(auth.logout).toHaveBeenCalled();
     expect(result.content[0].text).toContain("Not authenticated");
+  });
+
+  it("switch_role tool invokes auth.switchRole", async () => {
+    const state: AuthState = {
+      status: "authenticated",
+      token: "tok",
+      accounts: [{ id: 221, type: "A", name: "Test", isProfEtPersonnel: true }],
+    };
+    const server = stubServer();
+    const auth = stubAuth(state);
+    registerTools(server as any, auth as any);
+
+    const handler = server.handlers.get("switch_role")!;
+    expect(handler).toBeDefined();
+
+    const result = await handler({ role: "personnel" });
+
+    expect(auth.switchRole).toHaveBeenCalledWith("personnel");
+    expect(result.content[0].text).toContain("Authenticated");
+    expect(result.content[0].text).toContain("dual-role");
+  });
+
+  it("auth_status shows isProfEtPersonnel flag for dual-role accounts", async () => {
+    const state: AuthState = {
+      status: "authenticated",
+      token: "tok",
+      accounts: [{ id: 221, type: "P", name: "Teacher", isProfEtPersonnel: true }],
+    };
+    const server = stubServer();
+    const auth = stubAuth(state);
+    registerTools(server as any, auth as any);
+
+    const handler = server.handlers.get("auth_status")!;
+    const result = await handler({});
+
+    expect(result.content[0].text).toContain("dual-role: teacher/personnel");
   });
 });

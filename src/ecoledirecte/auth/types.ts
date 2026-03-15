@@ -64,6 +64,10 @@ export interface AccountInfo {
   name: string;
   establishment?: string;
   idLogin?: number;
+  /** Opaque uid required for role switching (teacher ↔ personnel). */
+  uid?: string;
+  /** Whether this account supports both teacher (P) and personnel (A) roles. */
+  isProfEtPersonnel?: boolean;
   main?: boolean;
   current?: boolean;
   students?: StudentInfo[];

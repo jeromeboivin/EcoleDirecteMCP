@@ -1046,4 +1046,211 @@ describe("AuthService", () => {
       }
     });
   });
+
+  describe("switchRole", () => {
+    function teacherAccount(): unknown[] {
+      return [
+        {
+          id: 221,
+          idLogin: 99001,
+          typeCompte: "P",
+          nom: "DUPONT",
+          prenom: "Marie",
+          nomEtablissement: "Collège Victor Hugo",
+          uid: "abc-uid-teacher",
+          isProfEtPersonnel: true,
+          main: true,
+          current: true,
+          modules: [{ code: "MESSAGERIE", enable: true }, { code: "NOTES", enable: true }],
+          profile: {
+            classes: [{ id: 18, code: "3B", libelle: "3ème B" }],
+          },
+        },
+      ];
+    }
+
+    function switchRoleResponseBody(targetType: string): RawApiResponse {
+      return {
+        code: ApiCode.OK,
+        token: "role-switch-token",
+        message: "",
+        data: {
+          id: 221,
+          accounts: [
+            {
+              id: 221,
+              idLogin: 99001,
+              typeCompte: targetType,
+              nom: "DUPONT",
+              prenom: "Marie",
+              nomEtablissement: "Collège Victor Hugo",
+              uid: "abc-uid-personnel",
+              isProfEtPersonnel: true,
+              main: true,
+              modules: [{ code: "MESSAGERIE", enable: true }, { code: "NOTES", enable: true }],
+              profile: {
+                classes: [
+                  { id: 18, code: "3B", libelle: "3ème B" },
+                  { id: 22, code: "4A", libelle: "4ème A" },
+                ],
+              },
+            },
+          ],
+        },
+      };
+    }
+
+    it("switches from teacher to personnel role via apip renewtoken", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: teacherAccount() }), { "X-Token": "login-token" }),
+        mockResponse(switchRoleResponseBody("A"), { "X-Token": "role-switch-token" }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("personnel");
+
+      expect(result.status).toBe("authenticated");
+      if (result.status === "authenticated") {
+        expect(result.token).toBe("role-switch-token");
+        expect(result.accounts).toEqual([
+          expect.objectContaining({
+            id: 221,
+            type: "A",
+            isProfEtPersonnel: true,
+            uid: "abc-uid-personnel",
+            current: true,
+          }),
+        ]);
+        // Should now show 2 classes (personnel sees all)
+        expect(result.accounts[0].classes).toHaveLength(2);
+      }
+      expect(http.postForm).toHaveBeenNthCalledWith(
+        2,
+        expect.stringContaining("apip.ecoledirecte.com/v3/renewtoken.awp?verbe=put"),
+        { profil: "A", uid: "abc-uid-teacher", uuid: "" },
+        { includeGtk: false },
+      );
+      expect(store.saveSession).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          token: "role-switch-token",
+          accounts: expect.arrayContaining([
+            expect.objectContaining({ id: 221, type: "A", current: true }),
+          ]),
+        }), undefined,
+      );
+    });
+
+    it("returns current state when already in the requested role", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: teacherAccount() }), { "X-Token": "login-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("teacher");
+
+      expect(result.status).toBe("authenticated");
+      // No additional API call should have been made
+      expect(http.postForm).toHaveBeenCalledTimes(1);
+    });
+
+    it("returns error when account does not support dual roles", async () => {
+      const singleRoleAccount = [{
+        id: 221,
+        idLogin: 99001,
+        typeCompte: "P",
+        nom: "DUPONT",
+        prenom: "Marie",
+        main: true,
+        current: true,
+      }];
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: singleRoleAccount }), { "X-Token": "login-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("personnel");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "This account does not support role switching. Only accounts with both teacher and personnel roles can switch.",
+        recoverable: true,
+      });
+    });
+
+    it("returns error when uid is missing", async () => {
+      const noUidAccount = [{
+        id: 221,
+        idLogin: 99001,
+        typeCompte: "P",
+        nom: "DUPONT",
+        prenom: "Marie",
+        isProfEtPersonnel: true,
+        main: true,
+        current: true,
+      }];
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: noUidAccount }), { "X-Token": "login-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("personnel");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Role switching requires uid metadata. Re-import a browser session that includes uid or authenticate again.",
+        recoverable: true,
+      });
+    });
+
+    it("returns error when API reports failure", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: teacherAccount() }), { "X-Token": "login-token" }),
+        mockResponse(errorBody(520, "Session expired")),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("personnel");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Session expired",
+        recoverable: true,
+      });
+    });
+
+    it("returns error when fetch fails", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody({ accounts: teacherAccount() }), { "X-Token": "login-token" }),
+      ]);
+      vi.mocked(http.postForm).mockRejectedValueOnce(new TypeError("fetch failed"));
+      // Override: first call succeeds (login), second fails (switchRole)
+      const loginResponse = mockResponse(successBody({ accounts: teacherAccount() }), { "X-Token": "login-token" });
+      vi.mocked(http.postForm)
+        .mockReset()
+        .mockResolvedValueOnce(loginResponse)
+        .mockRejectedValueOnce(new TypeError("fetch failed"));
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.switchRole("personnel");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Role switch failed: fetch failed",
+        recoverable: true,
+      });
+    });
+  });
 });
