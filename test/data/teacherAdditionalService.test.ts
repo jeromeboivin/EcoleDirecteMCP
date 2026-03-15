@@ -104,6 +104,65 @@ describe("additional teacher data service methods", () => {
     );
   });
 
+  it("returns teacher class students when the roster payload is wrapped in eleves", async () => {
+    const rosterBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        eleves: [
+          {
+            id: 6099,
+            prenom: "Irem",
+            nom: "AKYOL",
+            sexe: "F",
+            classeId: 85,
+            classeLibelle: "Premiere C",
+            photo: "//photo.jpg",
+          },
+        ],
+        entity: {
+          id: 85,
+          code: "1C",
+          libelle: "Premiere C",
+          type: "C",
+          isFlexible: false,
+          isPrimaire: false,
+        },
+      },
+    };
+
+    const http = makeHttp([rosterBody]);
+    const service = new EdDataService(http, makeAuth(teacherAuthState) as any);
+
+    const result = await service.getTeacherClassStudents({ classId: 85 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.class).toEqual({ id: 85, name: "Premiere C", code: "1C" });
+      expect(result.data.entity).toEqual({
+        id: 85,
+        code: "1C",
+        label: "Premiere C",
+        type: "C",
+        isFlexible: false,
+        isPrimary: false,
+      });
+      expect(result.data.students).toHaveLength(1);
+      expect(result.data.students[0]).toMatchObject({
+        id: 6099,
+        name: "Irem AKYOL",
+        classId: 85,
+        className: "Premiere C",
+      });
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/classes/85/eleves.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
   it("returns the teacher class carnet de correspondance overview", async () => {
     const rosterBody: RawApiResponse = {
       code: ApiCode.OK,
@@ -408,6 +467,196 @@ describe("additional teacher data service methods", () => {
       expect(detailResult.data.student.subjects[0]?.annualAppreciation).toBe("Bravo");
       expect(detailResult.data.student.subjects[0]?.competencies[0]?.evaluationLabel).toBe("Aucune évaluation");
       expect(detailResult.data.examOpinions[0]).toEqual({ code: "T", label: "Très favorable" });
+    }
+  });
+
+  it("returns teacher student notes with disciplines and appreciations", async () => {
+    const appreciationText = "Élève sérieuse et investie.";
+    const encodedAppreciation = Buffer.from(appreciationText).toString("base64");
+    const ppText = "Trimestre satisfaisant.";
+    const encodedPP = Buffer.from(ppText).toString("base64");
+
+    const profileBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        id: 4318,
+        nom: "BOUYSSET",
+        particule: "",
+        prenom: "Thaïs",
+        sexe: "F",
+        regime: "Externe",
+        dateDeNaissance: "2008-06-15",
+        email: "",
+        mobile: "",
+        isPrimaire: false,
+        isPP: false,
+        photo: "//photo.jpg",
+        classeId: 85,
+        classeLibelle: "Premiere C",
+        classeEstNote: 1,
+        idEtablissement: 1,
+      },
+    };
+    const notesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        parametrage: {
+          moyenneEleve: true,
+          moyenneClasse: true,
+          moyenneGenerale: true,
+        },
+        periodes: [
+          {
+            idPeriode: "P2",
+            codePeriode: "A002",
+            periode: "Trimestre 2",
+            annuel: false,
+            cloture: false,
+            examenBlanc: false,
+            ensembleMatieres: {
+              moyenneGenerale: "13.5",
+              moyenneClasse: "12.0",
+              rang: 5,
+              effectif: 30,
+              appreciationPP: encodedPP,
+              disciplines: [
+                {
+                  id: 201,
+                  codeMatiere: "FRANC",
+                  discipline: "Français",
+                  moyenne: "14.0",
+                  moyenneClasse: "12.5",
+                  coef: "3",
+                  rang: 3,
+                  effectif: 30,
+                  groupeMatiere: false,
+                  option: false,
+                  sousMatiere: false,
+                  professeurs: [{ id: 221, nom: "Mme ROUDIER BOIVIN" }],
+                  appreciations: [encodedAppreciation],
+                },
+              ],
+            },
+          },
+        ],
+        notes: [
+          {
+            id: 500,
+            devoir: "Commentaire de texte",
+            codePeriode: "A002",
+            codeMatiere: "FRANC",
+            libelleMatiere: "Français",
+            enLettre: false,
+            coef: "1",
+            noteSur: "20",
+            valeur: "15",
+            nonSignificatif: false,
+            date: "2026-01-20",
+          },
+        ],
+      },
+    };
+
+    const http = makeHttp([profileBody, notesBody]);
+    const service = new EdDataService(http, makeAuth(teacherAuthState) as any);
+
+    const result = await service.getTeacherStudentNotes({ studentId: 4318 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.student).toEqual({
+        id: 4318,
+        name: "Thaïs BOUYSSET",
+        classId: 85,
+        className: "Premiere C",
+      });
+      expect(result.data.periods).toHaveLength(1);
+      expect(result.data.periods[0].disciplines).toHaveLength(1);
+      expect(result.data.periods[0].disciplines[0].teachers[0].name).toBe("Mme ROUDIER BOIVIN");
+      expect(result.data.periods[0].disciplines[0].appreciations[0]).toBe(appreciationText);
+      expect(result.data.periods[0].appreciationPP).toBe(ppText);
+      expect(result.data.grades).toHaveLength(1);
+      expect(result.data.grades[0].value).toBe("15");
+    }
+
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("https://apip.ecoledirecte.com/v3/eleves/4318.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("https://apip.ecoledirecte.com/v3/eleves/4318/notes.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("filters teacher student notes by periodCode", async () => {
+    const profileBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        id: 4318,
+        nom: "BOUYSSET",
+        particule: "",
+        prenom: "Thaïs",
+        sexe: "F",
+        classeId: 85,
+        classeLibelle: "Premiere C",
+      },
+    };
+    const notesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        parametrage: {},
+        periodes: [
+          {
+            idPeriode: "P1",
+            codePeriode: "A001",
+            periode: "Trimestre 1",
+            annuel: false,
+            cloture: true,
+            examenBlanc: false,
+            ensembleMatieres: { disciplines: [] },
+          },
+          {
+            idPeriode: "P2",
+            codePeriode: "A002",
+            periode: "Trimestre 2",
+            annuel: false,
+            cloture: false,
+            examenBlanc: false,
+            ensembleMatieres: { disciplines: [] },
+          },
+        ],
+        notes: [
+          { id: 1, devoir: "DS1", codePeriode: "A001", libelleMatiere: "Français", enLettre: false, nonSignificatif: false },
+          { id: 2, devoir: "DS2", codePeriode: "A002", libelleMatiere: "Français", enLettre: false, nonSignificatif: false },
+        ],
+      },
+    };
+
+    const http = makeHttp([profileBody, notesBody]);
+    const service = new EdDataService(http, makeAuth(teacherAuthState) as any);
+
+    const result = await service.getTeacherStudentNotes({ studentId: 4318, periodCode: "A002" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.periods).toHaveLength(1);
+      expect(result.data.periods[0].code).toBe("A002");
+      expect(result.data.grades).toHaveLength(1);
+      expect(result.data.grades[0].id).toBe(2);
+      expect(result.data.selectedPeriodCode).toBe("A002");
     }
   });
 });

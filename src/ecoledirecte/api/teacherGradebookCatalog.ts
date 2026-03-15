@@ -30,6 +30,7 @@ export interface CatalogClass {
   label?: string;
   typeEntity: string;
   isPP: boolean;
+  principalProfessorIds?: number[];
   periods: CatalogPeriod[];
 }
 
@@ -122,13 +123,10 @@ function normalizeCatalogSource(value: unknown): {
   attendanceGrid: CatalogAttendanceSlot[];
 } {
   if (Array.isArray(value)) {
-    const firstParams = value.length > 0
-      ? asRecord((value[0] as Record<string, unknown>)?.parametres)
-      : undefined;
     return {
       establishments: value,
       rootGroupes: [],
-      attendanceGrid: normalizeAttendanceGrid(firstParams?.grille),
+      attendanceGrid: normalizeAttendanceGridCollection(value),
     };
   }
 
@@ -138,15 +136,29 @@ function normalizeCatalogSource(value: unknown): {
     ...(Array.isArray(source?.groupes) ? source.groupes : []),
     ...(Array.isArray(source?.autresGroupes) ? source.autresGroupes : []),
   ];
-  const firstParams = establishments.length > 0
-    ? asRecord((establishments[0] as Record<string, unknown>)?.parametres)
-    : undefined;
-
   return {
     establishments,
     rootGroupes,
-    attendanceGrid: normalizeAttendanceGrid(firstParams?.grille),
+    attendanceGrid: normalizeAttendanceGridCollection(establishments),
   };
+}
+
+function normalizeAttendanceGridCollection(values: unknown[]): CatalogAttendanceSlot[] {
+  const slots: CatalogAttendanceSlot[] = [];
+  const seen = new Set<string>();
+
+  for (const value of values) {
+    const entry = asRecord(value);
+    const params = asRecord(entry?.parametres);
+    for (const slot of normalizeAttendanceGrid(params?.grille)) {
+      const key = `${slot.start}-${slot.end}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      slots.push(slot);
+    }
+  }
+
+  return slots;
 }
 
 function normalizeEstablishment(entry: unknown): CatalogEstablishment[] {
@@ -189,7 +201,8 @@ function normalizeClass(entry: unknown): CatalogClass[] {
   if (id === undefined) return [];
 
   const tabPP = Array.isArray(e.tabPP) ? e.tabPP : [];
-  const isPP = e.isPP === true || tabPP.length > 0;
+  const principalProfessorIds = tabPP.flatMap((value) => normalizePrincipalProfessorId(value));
+  const isPP = e.isPP === true || principalProfessorIds.length > 0;
 
   return [{
     id,
@@ -197,8 +210,19 @@ function normalizeClass(entry: unknown): CatalogClass[] {
     ...(typeof e.libelle === "string" ? { label: e.libelle } : {}),
     typeEntity: typeof e.typeEntity === "string" ? e.typeEntity : "C",
     isPP,
+    ...(principalProfessorIds.length > 0 ? { principalProfessorIds } : {}),
     periods: normalizePeriods(e.periodes),
   }];
+}
+
+function normalizePrincipalProfessorId(value: unknown): number[] {
+  const entry = asRecord(value);
+  const id = typeof entry?.idPP === "number"
+    ? entry.idPP
+    : typeof entry?.id === "number"
+      ? entry.id
+      : undefined;
+  return id !== undefined ? [id] : [];
 }
 
 function normalizeGroup(entry: unknown): CatalogGroup[] {

@@ -935,15 +935,32 @@ function decodeBase64String(value: unknown): string {
 /** Format an error with its cause for actionable diagnostics. */
 function formatError(error: unknown): string {
   if (!(error instanceof Error)) return String(error);
+  const message = formatSingleError(error);
+  const cause = formatErrorCause(error.cause);
+  return cause && cause !== message ? `${message} (${cause})` : message;
+}
+
+function formatSingleError(error: Error): string {
   if (error.name === "TimeoutError") {
     return "Request timed out — the EcoleDirecte API did not respond in time";
   }
-  const cause = error.cause;
+  const message = error.message.trim();
+  return message.length > 0 ? message : error.name;
+}
+
+function formatErrorCause(cause: unknown): string | undefined {
   if (cause instanceof Error) {
-    if (cause.name === "TimeoutError") {
-      return "Request timed out — the EcoleDirecte API did not respond in time";
-    }
-    return `${error.message} (${cause.message})`;
+    return formatSingleError(cause);
   }
-  return error.message;
+  if (!cause || typeof cause !== "object") return undefined;
+
+  const record = cause as Record<string, unknown>;
+  const details = [
+    typeof record.code === "string" ? record.code : undefined,
+    typeof record.hostname === "string" ? record.hostname : undefined,
+    typeof record.syscall === "string" ? record.syscall : undefined,
+    typeof record.message === "string" && record.message.trim().length > 0 ? record.message.trim() : undefined,
+  ].filter((value): value is string => Boolean(value));
+
+  return details.length > 0 ? details.join(", ") : undefined;
 }

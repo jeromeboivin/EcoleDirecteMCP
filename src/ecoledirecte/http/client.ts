@@ -9,6 +9,18 @@ import { CONTENT_TYPE_FORM } from "../api/constants.js";
 
 const DEFAULT_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
 const FETCH_TIMEOUT_MS = 30_000;
+const FETCH_MAX_ATTEMPTS = 3;
+const FETCH_RETRY_BASE_DELAY_MS = 250;
+const RETRYABLE_FETCH_ERROR_CODES = new Set([
+  "EAI_AGAIN",
+  "ECONNABORTED",
+  "ECONNRESET",
+  "ENETUNREACH",
+  "ETIMEDOUT",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_SOCKET",
+]);
 
 export class EdHttpClient {
   private cookies = new Map<string, string>();
@@ -122,16 +134,33 @@ export class EdHttpClient {
       .join("; ");
   }
 
+  private async request(url: string, init: RequestInit): Promise<Response> {
+    for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        return await fetch(url, {
+          ...init,
+          redirect: "manual",
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        });
+      } catch (error) {
+        if (!shouldRetryRequest(error) || attempt >= FETCH_MAX_ATTEMPTS) {
+          throw error;
+        }
+        await wait(FETCH_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
+      }
+    }
+
+    throw new Error("Unreachable request retry state");
+  }
+
   /** Plain GET with cookie + GTK headers. */
   async get(
     url: string,
     opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean } = {},
   ): Promise<Response> {
-    return fetch(url, {
+    return this.request(url, {
       method: "GET",
       headers: this.commonHeaders(opts),
-      redirect: "manual",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   }
 
@@ -145,15 +174,13 @@ export class EdHttpClient {
     opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean } = {},
   ): Promise<Response> {
     const body = `data=${encodeURIComponent(JSON.stringify(data))}`;
-    return fetch(url, {
+    return this.request(url, {
       method: "POST",
       headers: {
         ...this.commonHeaders(opts),
         "Content-Type": CONTENT_TYPE_FORM,
       },
       body,
-      redirect: "manual",
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
   }
 
@@ -175,4 +202,23 @@ export class EdHttpClient {
     this.xToken = undefined;
     this.twoFaToken = undefined;
   }
+}
+
+function shouldRetryRequest(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === "AbortError" || error.name === "TimeoutError") return true;
+  if (error.message.trim().toLowerCase() === "fetch failed") return true;
+
+  const code = extractErrorCode(error.cause);
+  return code !== undefined && RETRYABLE_FETCH_ERROR_CODES.has(code);
+}
+
+function extractErrorCode(cause: unknown): string | undefined {
+  if (!cause || typeof cause !== "object") return undefined;
+  const record = cause as Record<string, unknown>;
+  return typeof record.code === "string" ? record.code : undefined;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

@@ -38,6 +38,7 @@ import type {
   TeacherNoteSettingsResult,
   TeacherRoomsResult,
   TeacherStudentCarnetCorrespondanceResult,
+  TeacherStudentNotesResult,
 } from "../ecoledirecte/data/service.js";
 import { log } from "../ecoledirecte/logging.js";
 
@@ -139,6 +140,12 @@ const teacherStudentCarnetCorrespondanceQuerySchema = {
   ...teacherQuerySchema,
   studentId: z.number().int().positive(),
   schoolYear: z.string().optional(),
+};
+
+const teacherStudentNotesQuerySchema = {
+  ...teacherQuerySchema,
+  studentId: z.number().int().positive(),
+  periodCode: z.string().min(1).optional(),
 };
 
 const teacherCahierDeTextesQuerySchema = {
@@ -535,6 +542,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 
   server.tool(
+    "get_teacher_student_notes",
+    "Get notes, period averages, per-subject disciplines with teacher appreciations, and council decisions for a student in the teacher's classes. Use get_teacher_class_students first to find studentId. Omit periodCode to get all periods.",
+    teacherStudentNotesQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_student_notes tool invoked");
+      const result = await data.getTeacherStudentNotes(args);
+      return resultForTeacherStudentNotes(result);
+    }),
+  );
+
+  server.tool(
     "list_teacher_attendance_targets",
     "List teacher attendance classes, groups, and suggested time slots. Uses account metadata plus the attendance grid exposed by niveauxListe.",
     teacherQuerySchema,
@@ -849,6 +867,17 @@ function resultForTeacherStudentCarnetCorrespondance(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherStudentNotes(
+  result: Awaited<ReturnType<EdDataService["getTeacherStudentNotes"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const totalDisciplines = result.data.periods.reduce(
+    (sum, p) => sum + p.disciplines.length, 0,
+  );
+  const summary = `${result.data.grades.length} grades across ${result.data.periods.length} periods (${totalDisciplines} subject disciplines) for ${result.data.student.name}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherAttendanceTargets(
   result: Awaited<ReturnType<EdDataService["listTeacherAttendanceTargets"]>>,
 ) {
@@ -1014,6 +1043,7 @@ function successResult(
     | TeacherNoteSettingsResult
     | TeacherRoomsResult
     | TeacherStudentCarnetCorrespondanceResult
+    | TeacherStudentNotesResult
     | { scope: string; teacher: { name: string }; classes: unknown },
 ) {
   return {

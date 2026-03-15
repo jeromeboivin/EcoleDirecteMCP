@@ -986,6 +986,37 @@ const teacherAuthState: AuthState = {
   ],
 };
 
+const teacherMultiClassAuthState: AuthState = {
+  status: "authenticated",
+  token: "teacher-tok",
+  accounts: [
+    {
+      id: 221,
+      idLogin: 708430,
+      type: "P",
+      name: "Mme D. PROF",
+      establishment: "Centre Scolaire",
+      main: true,
+      current: true,
+      classes: [
+        { id: 85, code: "1C", label: "Premiere C" },
+        { id: 118, code: "BP-COIF2", label: "BP Coiffure 2ème année" },
+        { id: 108, code: "BP-COIF1", label: "BP coiffure 1ère année" },
+        { id: 74, code: "TC", label: "Terminale C" },
+        { id: 68, code: "TB", label: "Terminale B" },
+        { id: 67, code: "TA", label: "Terminale A" },
+      ],
+      groups: [
+        { id: 1505, code: "VICLA_TG6", label: "Vie de classe TG6", classId: 67, subjectCode: "VICLA" },
+      ],
+      subjects: [
+        { code: "FRANC", label: "FRANCAIS" },
+        { code: "VICLA", label: "VIE DE CLASSE" },
+      ],
+    },
+  ],
+};
+
 describe("teacher gradebook catalog", () => {
   it("lists teacher attendance targets with suggested slots", async () => {
     const catalogBody: RawApiResponse = {
@@ -1290,6 +1321,170 @@ describe("teacher gradebook catalog", () => {
       });
       expect(result.data.establishments[0]?.groups[0]?.id).toBe(1505);
       expect(result.data.establishments[0]?.groups[0]?.periods[0]?.state).toBe("ouvert");
+    }
+  });
+
+  it("reconciles zero-valued catalog class ids against teacher metadata", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 2,
+            code: "LYC",
+            libelle: "Lycée Jeanne d'Arc",
+            niveaux: [
+              {
+                classes: [
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TA",
+                    libelle: "Terminale A",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TB",
+                    libelle: "Terminale B",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TC",
+                    libelle: "Terminale C",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "1C",
+                    libelle: "Premiere C",
+                    tabPP: [{ idPP: 999 }],
+                    periodes: [],
+                  },
+                ],
+                groupes: [],
+              },
+            ],
+          },
+          {
+            id: 6,
+            code: "LP",
+            libelle: "Lycée Pro",
+            parametres: {
+              grille: [{ heureDbt: "13:25", heureFin: "14:20" }],
+            },
+            niveaux: [
+              {
+                classes: [
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "BP-COIF2",
+                    libelle: "BP Coiffure 2ème année",
+                    tabPP: [{ idPP: 999 }],
+                    periodes: [],
+                  },
+                ],
+                groupes: [],
+              },
+            ],
+          },
+        ],
+        groupes: [],
+        autresGroupes: [],
+      },
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherMultiClassAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookCatalog();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.establishments[0]?.classes.map((entry) => entry.id)).toEqual([67, 68, 74, 85]);
+      expect(result.data.establishments[0]?.classes.map((entry) => entry.code)).toEqual(["TA", "TB", "TC", "1C"]);
+      expect(result.data.establishments[0]?.classes.map((entry) => entry.isPP)).toEqual([true, true, true, false]);
+      expect(result.data.establishments[1]?.classes[0]).toMatchObject({
+        id: 118,
+        code: "BP-COIF2",
+        label: "BP Coiffure 2ème année",
+        isPP: false,
+      });
+      expect(result.data.attendanceGrid).toEqual([{ start: "13:25", end: "14:20" }]);
+    }
+  });
+
+  it("reconciles attendance targets when catalog classes collapse to id 0", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 2,
+            code: "LYC",
+            libelle: "Lycée Jeanne d'Arc",
+            niveaux: [
+              {
+                classes: [
+                  { id: 0, idGroupe: 0, code: "TA", libelle: "Terminale A", tabPP: [{ idPP: 221 }], periodes: [] },
+                  { id: 0, idGroupe: 0, code: "TB", libelle: "Terminale B", tabPP: [{ idPP: 221 }], periodes: [] },
+                  { id: 0, idGroupe: 0, code: "TC", libelle: "Terminale C", tabPP: [{ idPP: 221 }], periodes: [] },
+                  { id: 0, idGroupe: 0, code: "1C", libelle: "Premiere C", tabPP: [{ idPP: 999 }], periodes: [] },
+                ],
+                groupes: [
+                  { idGroupe: 1505, code: "VICLA_TG6", libelle: "Vie de classe TG6", typeEntity: "G", periodes: [] },
+                ],
+              },
+            ],
+          },
+          {
+            id: 6,
+            code: "LP",
+            libelle: "Lycée Pro",
+            parametres: {
+              grille: [{ heureDbt: "13:25", heureFin: "14:20" }],
+            },
+            niveaux: [
+              {
+                classes: [
+                  { id: 0, idGroupe: 0, code: "BP-COIF2", libelle: "BP Coiffure 2ème année", tabPP: [{ idPP: 999 }], periodes: [] },
+                ],
+                groupes: [],
+              },
+            ],
+          },
+        ],
+        groupes: [],
+        autresGroupes: [],
+      },
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherMultiClassAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listTeacherAttendanceTargets();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.classes.find((entry) => entry.id === 0)).toBeUndefined();
+      expect(result.data.classes).toContainEqual({ id: 85, entityType: "C", code: "1C", label: "Premiere C" });
+      expect(result.data.classes).toContainEqual({ id: 67, entityType: "C", code: "TA", label: "Terminale A" });
+      expect(result.data.classes).toContainEqual({ id: 118, entityType: "C", code: "BP-COIF2", label: "BP Coiffure 2ème année" });
+      expect(result.data.suggestedSlots).toEqual([{ start: "13:25", end: "14:20" }]);
     }
   });
 
@@ -1625,6 +1820,100 @@ describe("teacher gradebook catalog", () => {
     }
   });
 
+  it("filters council targets by current teacher principal-professor ids and reconciles ids", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 2,
+            code: "LYC",
+            libelle: "Lycée Jeanne d'Arc",
+            niveaux: [
+              {
+                classes: [
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TA",
+                    libelle: "Terminale A",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [{ codePeriode: "A003", libelle: "Trimestre 3", etat: "ouvert", saisieAppreciation: true, saisieAppreciationClasse: true, dateConseil: "2026-05-31", matieres: [] }],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TB",
+                    libelle: "Terminale B",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [{ codePeriode: "A003", libelle: "Trimestre 3", etat: "ouvert", saisieAppreciation: true, saisieAppreciationClasse: true, dateConseil: "2026-05-31", matieres: [] }],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TC",
+                    libelle: "Terminale C",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [{ codePeriode: "A003", libelle: "Trimestre 3", etat: "ouvert", saisieAppreciation: true, saisieAppreciationClasse: true, dateConseil: "2026-05-31", matieres: [] }],
+                  },
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "1C",
+                    libelle: "Premiere C",
+                    tabPP: [{ idPP: 999 }],
+                    periodes: [{ codePeriode: "A003", libelle: "Trimestre 3", etat: "ouvert", saisieAppreciation: true, saisieAppreciationClasse: true, dateConseil: "2026-05-31", matieres: [] }],
+                  },
+                ],
+                groupes: [],
+              },
+            ],
+          },
+        ],
+        groupes: [],
+        autresGroupes: [],
+      },
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherMultiClassAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listTeacherCouncilTargets();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.targets).toEqual([
+        {
+          id: 67,
+          entityType: "C",
+          code: "TA",
+          label: "Terminale A",
+          isPP: true,
+          periods: [{ code: "A003", label: "Trimestre 3", state: "ouvert", councilDate: "2026-05-31", appreciationOpen: true, classAppreciationOpen: true }],
+        },
+        {
+          id: 68,
+          entityType: "C",
+          code: "TB",
+          label: "Terminale B",
+          isPP: true,
+          periods: [{ code: "A003", label: "Trimestre 3", state: "ouvert", councilDate: "2026-05-31", appreciationOpen: true, classAppreciationOpen: true }],
+        },
+        {
+          id: 74,
+          entityType: "C",
+          code: "TC",
+          label: "Terminale C",
+          isPP: true,
+          periods: [{ code: "A003", label: "Trimestre 3", state: "ouvert", councilDate: "2026-05-31", appreciationOpen: true, classAppreciationOpen: true }],
+        },
+      ]);
+    }
+  });
+
   it("fetches teacher council detail with both template scopes", async () => {
     const catalogBody: RawApiResponse = {
       code: ApiCode.OK,
@@ -1803,6 +2092,101 @@ describe("teacher gradebook catalog", () => {
     expect(http.postForm).toHaveBeenNthCalledWith(
       4,
       expect.stringContaining("/v3/Enseignant/221/C/85/appreciationsPredefinies.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("fetches teacher council detail when the catalog exposes the class with id 0", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        etablissements: [
+          {
+            id: 2,
+            code: "LYC",
+            libelle: "Lycée Jeanne d'Arc",
+            niveaux: [
+              {
+                classes: [
+                  {
+                    id: 0,
+                    idGroupe: 0,
+                    code: "TA",
+                    libelle: "Terminale A",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [
+                      {
+                        codePeriode: "A003",
+                        libelle: "Trimestre 3",
+                        etat: "ouvert",
+                        saisieAppreciation: true,
+                        saisieAppreciationClasse: true,
+                        dateConseil: "2026-05-31",
+                        matieres: [],
+                      },
+                    ],
+                  },
+                ],
+                groupes: [],
+              },
+            ],
+          },
+        ],
+        groupes: [],
+        autresGroupes: [],
+      },
+    };
+
+    const councilBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        eleves: [
+          {
+            id: 6099,
+            prenom: "Irem",
+            nom: "AKYOL",
+            dispositifs: [],
+            appreciationPP: { text: "QnJhdm8h" },
+          },
+        ],
+        parametrage: {
+          mentions: [{ id: 2, libelle: "Encouragements", numLigne: 1 }],
+          appreciations: [{ code: "APP1", id: 1, libelle: "Appréciation générale", nbCaracteres: 200 }],
+        },
+      },
+    };
+    const ppTemplatesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: { appreciations: [], parametrage: { nbCaractMax: 200 } },
+    };
+    const teacherTemplatesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: { appreciations: [], parametrage: { nbCaractMax: 200 } },
+    };
+
+    const http = makeHttp([catalogBody, councilBody, ppTemplatesBody, teacherTemplatesBody]);
+    const auth = makeAuth(teacherMultiClassAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherCouncilDetail({ entityId: 67, periodCode: "A003" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.target).toEqual({ id: 67, entityType: "C", code: "TA", label: "Terminale A", isPP: true });
+      expect(result.data.students[0]?.appreciationPP?.text).toBe("Bravo!");
+    }
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/v3/enseignants/221/C/67/periodes/A003/conseilDeClasse.awp"),
       {},
       { includeGtk: false },
     );

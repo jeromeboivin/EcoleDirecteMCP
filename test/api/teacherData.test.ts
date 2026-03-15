@@ -163,6 +163,58 @@ describe("teacher data normalizers", () => {
       expect(result.data?.students[1]?.classId).toBeUndefined();
     });
 
+    it("normalizes an object roster payload with eleves and entity", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          eleves: [
+            {
+              id: 6099,
+              prenom: "Irem",
+              nom: "AKYOL",
+              sexe: "F",
+              classeId: 85,
+              classeLibelle: "Premiere C",
+              photo: "//photo.jpg",
+            },
+          ],
+          entity: {
+            id: 85,
+            code: "1C",
+            libelle: "Premiere C",
+            type: "C",
+            isFlexible: false,
+            isPrimaire: false,
+          },
+        },
+      };
+
+      const result = normalizeTeacherClassStudentsResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.entity).toEqual({
+        id: 85,
+        code: "1C",
+        label: "Premiere C",
+        type: "C",
+        isFlexible: false,
+        isPrimary: false,
+      });
+      expect(result.data?.students).toHaveLength(1);
+      expect(result.data?.students[0]).toMatchObject({
+        id: 6099,
+        name: "Irem AKYOL",
+        firstName: "Irem",
+        lastName: "AKYOL",
+        sexe: "F",
+        classId: 85,
+        className: "Premiere C",
+        photo: "//photo.jpg",
+      });
+    });
+
     it("skips entries without a numeric id", () => {
       const raw: RawApiResponse = {
         code: ApiCode.OK,
@@ -586,6 +638,67 @@ describe("teacher data normalizers", () => {
         editability: "Si non vide",
       });
       expect(result.data?.attendanceGrid).toEqual([{ start: "08:00", end: "08:55" }]);
+    });
+
+    it("collects attendance grids across establishments and keeps principal-professor ids", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          etablissements: [
+            {
+              id: 2,
+              code: "LYC",
+              libelle: "Lycée",
+              niveaux: [
+                {
+                  classes: [
+                    {
+                      id: 0,
+                      idGroupe: 0,
+                      code: "TA",
+                      libelle: "Terminale A",
+                      tabPP: [{ idPP: 221 }, { idPP: 222 }],
+                      periodes: [],
+                    },
+                  ],
+                  groupes: [],
+                },
+              ],
+            },
+            {
+              id: 6,
+              code: "LP",
+              libelle: "Lycée Pro",
+              parametres: {
+                grille: [
+                  { heureDbt: "13:25", heureFin: "14:20" },
+                  { heureDbt: "14:25", heureFin: "15:20" },
+                ],
+              },
+              niveaux: [],
+            },
+          ],
+          groupes: [],
+          autresGroupes: [],
+        },
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.attendanceGrid).toEqual([
+        { start: "13:25", end: "14:20" },
+        { start: "14:25", end: "15:20" },
+      ]);
+      expect(result.data?.establishments[0]?.classes[0]).toMatchObject({
+        id: 0,
+        code: "TA",
+        label: "Terminale A",
+        isPP: true,
+        principalProfessorIds: [221, 222],
+      });
     });
 
     it("returns failure for non-OK code", () => {

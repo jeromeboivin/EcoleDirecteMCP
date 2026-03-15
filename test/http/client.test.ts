@@ -199,6 +199,109 @@ describe("EdHttpClient", () => {
     });
   });
 
+  describe("transient network failures", () => {
+    it("retries GET once after a transient fetch failure", async () => {
+      const originalFetch = globalThis.fetch;
+      let callCount = 0;
+      const fetchMock = async (): Promise<Response> => {
+        callCount += 1;
+        if (callCount === 1) {
+          const error = new TypeError("fetch failed") as TypeError & { cause?: unknown };
+          error.cause = { code: "EAI_AGAIN", hostname: "api.ecoledirecte.com" };
+          throw error;
+        }
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        const response = await client.get("https://example.test");
+        expect(response.status).toBe(200);
+        expect(callCount).toBe(2);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("retries POST once after a timeout", async () => {
+      const originalFetch = globalThis.fetch;
+      let callCount = 0;
+      const fetchMock = async (): Promise<Response> => {
+        callCount += 1;
+        if (callCount === 1) {
+          const error = new Error("The operation was aborted due to timeout");
+          error.name = "TimeoutError";
+          throw error;
+        }
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        const response = await client.postForm("https://example.test", { key: "value" });
+        expect(response.status).toBe(200);
+        expect(callCount).toBe(2);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("retries up to 3 attempts on repeated transient failures", async () => {
+      const originalFetch = globalThis.fetch;
+      let callCount = 0;
+      const fetchMock = async (): Promise<Response> => {
+        callCount += 1;
+        if (callCount <= 2) {
+          const error = new TypeError("fetch failed") as TypeError & { cause?: unknown };
+          error.cause = { code: "ECONNRESET" };
+          throw error;
+        }
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        const response = await client.get("https://example.test");
+        expect(response.status).toBe(200);
+        expect(callCount).toBe(3);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it("throws after exhausting all 3 attempts", async () => {
+      const originalFetch = globalThis.fetch;
+      let callCount = 0;
+      const fetchMock = async (): Promise<Response> => {
+        callCount += 1;
+        const error = new TypeError("fetch failed") as TypeError & { cause?: unknown };
+        error.cause = { code: "ECONNRESET" };
+        throw error;
+      };
+
+      globalThis.fetch = fetchMock as typeof fetch;
+      try {
+        const client = new EdHttpClient();
+        await expect(client.get("https://example.test")).rejects.toThrow("fetch failed");
+        expect(callCount).toBe(3);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   describe("fetch timeout", () => {
     it("passes an AbortSignal to GET requests", async () => {
       const originalFetch = globalThis.fetch;

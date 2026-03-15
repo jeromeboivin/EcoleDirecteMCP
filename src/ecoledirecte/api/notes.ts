@@ -10,6 +10,32 @@ export interface NotesSettings {
   coefficientNote?: boolean;
 }
 
+export interface SubjectTeacher {
+  id: number;
+  name: string;
+}
+
+export interface SubjectDiscipline {
+  id: number;
+  code: string;
+  name: string;
+  average?: string;
+  classAverage?: string;
+  classMin?: string;
+  classMax?: string;
+  coefficient?: string;
+  rank?: number;
+  effectif?: number;
+  teachers: SubjectTeacher[];
+  appreciations: string[];
+  classAppreciation?: string;
+  subCode?: string;
+  isGroup: boolean;
+  groupId?: number;
+  isOption: boolean;
+  isSubSubject: boolean;
+}
+
 export interface NotePeriodSummary {
   id: string;
   label: string;
@@ -27,6 +53,13 @@ export interface NotePeriodSummary {
   calculatedAt?: string;
   councilDate?: string;
   councilRoom?: string;
+  rank?: number;
+  effectif?: number;
+  disciplines: SubjectDiscipline[];
+  appreciationPP?: string;
+  appreciationCE?: string;
+  appreciationVS?: string;
+  councilDecision?: string;
 }
 
 export interface StudentGrade {
@@ -124,6 +157,9 @@ function normalizePeriod(value: unknown): NotePeriodSummary[] {
   if (!id || !label) return [];
 
   const overview = asRecord(period?.ensembleMatieres);
+  const disciplines = Array.isArray(overview?.disciplines)
+    ? overview.disciplines.flatMap((d: unknown) => normalizeDiscipline(d))
+    : [];
 
   return [{
     id,
@@ -142,6 +178,61 @@ function normalizePeriod(value: unknown): NotePeriodSummary[] {
     ...(asString(overview?.dateCalcul) ? { calculatedAt: asString(overview?.dateCalcul) } : {}),
     ...(asString(period?.dateConseil) ? { councilDate: asString(period?.dateConseil) } : {}),
     ...(asString(period?.salleConseil) ? { councilRoom: asString(period?.salleConseil) } : {}),
+    ...(asNumber(overview?.rang) !== undefined ? { rank: asNumber(overview?.rang) } : {}),
+    ...(asNumber(overview?.effectif) !== undefined ? { effectif: asNumber(overview?.effectif) } : {}),
+    disciplines,
+    ...(decodeBase64Field(overview?.appreciationPP) ? { appreciationPP: decodeBase64Field(overview?.appreciationPP) } : {}),
+    ...(decodeBase64Field(overview?.appreciationCE) ? { appreciationCE: decodeBase64Field(overview?.appreciationCE) } : {}),
+    ...(decodeBase64Field(overview?.appreciationVS) ? { appreciationVS: decodeBase64Field(overview?.appreciationVS) } : {}),
+    ...(decodeBase64Field(overview?.decisionDuConseil) ? { councilDecision: decodeBase64Field(overview?.decisionDuConseil) } : {}),
+  }];
+}
+
+function normalizeDiscipline(value: unknown): SubjectDiscipline[] {
+  const d = asRecord(value);
+  if (!d) return [];
+  const id = asNumber(d.id);
+  if (id === undefined) return [];
+
+  const code = asString(d.codeMatiere) ?? "";
+  const name = asString(d.discipline) ?? "";
+
+  const teachers: SubjectTeacher[] = Array.isArray(d.professeurs)
+    ? d.professeurs.flatMap((p: unknown) => {
+        const pr = asRecord(p);
+        const pId = asNumber(pr?.id);
+        const pName = asString(pr?.nom);
+        return pId !== undefined && pName ? [{ id: pId, name: pName }] : [];
+      })
+    : [];
+
+  const appreciations: string[] = Array.isArray(d.appreciations)
+    ? d.appreciations
+        .map((a: unknown) => typeof a === "string" ? decodeBase64Field(a) : undefined)
+        .filter((a): a is string => a !== undefined)
+    : [];
+
+  const classAppreciation = decodeBase64Field(d.appreciationClasse);
+
+  return [{
+    id,
+    code,
+    name,
+    ...(asString(d.moyenne) ? { average: asString(d.moyenne) } : {}),
+    ...(asString(d.moyenneClasse) ? { classAverage: asString(d.moyenneClasse) } : {}),
+    ...(asString(d.moyenneMin) ? { classMin: asString(d.moyenneMin) } : {}),
+    ...(asString(d.moyenneMax) ? { classMax: asString(d.moyenneMax) } : {}),
+    ...(asString(d.coef) ? { coefficient: asString(d.coef) } : {}),
+    ...(asNumber(d.rang) !== undefined ? { rank: asNumber(d.rang) } : {}),
+    ...(asNumber(d.effectif) !== undefined ? { effectif: asNumber(d.effectif) } : {}),
+    teachers,
+    appreciations,
+    ...(classAppreciation ? { classAppreciation } : {}),
+    ...(asString(d.codeSousMatiere) ? { subCode: asString(d.codeSousMatiere) } : {}),
+    isGroup: asBooleanLike(d.groupeMatiere) ?? false,
+    ...(asNumber(d.idGroupeMatiere) !== undefined ? { groupId: asNumber(d.idGroupeMatiere) } : {}),
+    isOption: asBooleanLike(d.option) ?? false,
+    isSubSubject: asBooleanLike(d.sousMatiere) ?? false,
   }];
 }
 
@@ -175,6 +266,19 @@ function normalizeGrade(value: unknown): StudentGrade[] {
     hasSubjectAttachment: asString(grade?.uncSujet) !== undefined,
     hasCorrectionAttachment: asString(grade?.uncCorrige) !== undefined,
   }];
+}
+
+function decodeBase64Field(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  if (/[^A-Za-z0-9+/=\s]/.test(trimmed)) return trimmed;
+  try {
+    const decoded = Buffer.from(trimmed.replace(/\s+/g, ""), "base64").toString("utf-8").trim();
+    return decoded || trimmed;
+  } catch {
+    return trimmed;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

@@ -120,6 +120,44 @@ function stubData() {
         principalProfessorOnlyEngagements: false,
       },
     }),
+    getTeacherStudentNotes: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "student",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        student: { id: 4318, name: "Thaïs BOUYSSET", classId: 85, className: "Premiere C" },
+        settings: { studentAverage: true, classAverage: true, generalAverage: true },
+        periods: [
+          {
+            id: "P2",
+            label: "Trimestre 2",
+            code: "A002",
+            annual: false,
+            closed: false,
+            exam: false,
+            generalAverage: "13.5",
+            disciplines: [
+              {
+                id: 201,
+                code: "FRANC",
+                name: "Français",
+                average: "14.0",
+                teachers: [{ id: 221, name: "Mme ROUDIER BOIVIN" }],
+                appreciations: ["Élève sérieuse."],
+                isGroup: false,
+                isOption: false,
+                isSubSubject: false,
+              },
+            ],
+            appreciationPP: "Trimestre satisfaisant.",
+          },
+        ],
+        grades: [
+          { id: 500, assignment: "DS", subject: "Français", value: "15" },
+        ],
+        expired: false,
+      },
+    }),
   };
 }
 
@@ -145,6 +183,7 @@ describe("additional teacher MCP data tools", () => {
     expect(server.handlers.has("get_teacher_cahier_de_textes")).toBe(true);
     expect(server.handlers.has("list_teacher_lsl_classes")).toBe(true);
     expect(server.handlers.has("get_teacher_lsl_student_detail")).toBe(true);
+    expect(server.handlers.has("get_teacher_student_notes")).toBe(true);
   });
 
   it("formats teacher message detail results", async () => {
@@ -215,5 +254,18 @@ describe("additional teacher MCP data tools", () => {
     expect(detailResult.content[0].text).toContain("Teacher LSL / Parcoursup student detail for Gulseren BASAGAC");
     expect(detailResult.content[0].text).toContain("1 subject(s), 1 exam opinion entry, 2 engagement entries, in Terminale A");
     expect(data.getTeacherLslStudentDetail).toHaveBeenCalledWith({ classId: 67, studentId: 4018 });
+  });
+
+  it("formats teacher student notes results", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_student_notes")!({ studentId: 4318 });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("1 grades across 1 periods (1 subject disciplines) for Thaïs BOUYSSET");
+    expect(result.content[0].text).toContain('"appreciationPP": "Trimestre satisfaisant."');
+    expect(data.getTeacherStudentNotes).toHaveBeenCalledWith({ studentId: 4318 });
   });
 });

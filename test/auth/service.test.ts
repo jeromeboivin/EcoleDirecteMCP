@@ -292,6 +292,23 @@ describe("AuthService", () => {
       });
       expect(svc.getState()).toEqual(result);
     });
+
+    it("includes network cause details when bootstrap fetch fails", async () => {
+      const http = makeHttp([]);
+      const error = new TypeError("fetch failed") as TypeError & { cause?: unknown };
+      error.cause = { code: "EAI_AGAIN", hostname: "api.ecoledirecte.com" };
+      vi.mocked(http.get).mockRejectedValue(error);
+      const svc = new AuthService(http, makeStore());
+
+      const result = await svc.login("user", "pass");
+
+      expect(result).toEqual({
+        status: "error",
+        message: "Login failed: fetch failed (EAI_AGAIN, api.ecoledirecte.com)",
+        recoverable: true,
+      });
+      expect(svc.getState()).toEqual(result);
+    });
   });
 
   describe("submitTotp", () => {

@@ -221,6 +221,11 @@ export function teacherStudentProfileUrl(studentId: number, opts: { version?: st
   return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}.awp?verbe=get&v=${v}`;
 }
 
+export function teacherStudentNotesUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}/notes.awp?verbe=get&v=${v}`;
+}
+
 export function teacherStudentCarnetCorrespondanceUrl(studentId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=${v}`;

@@ -30,6 +30,7 @@ import {
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
   teacherStudentCarnetCorrespondanceUrl,
+  teacherStudentNotesUrl,
   teacherStudentProfileUrl,
   teacherStudentSessionsRdvUrl,
   teacherStudentVieScolaireUrl,
@@ -107,8 +108,10 @@ import {
   type TeacherGradebookPredefinedAppreciationsPayload,
 } from "../api/teacherGradebookAppreciations.js";
 import {
+  type CatalogClass,
   normalizeTeacherGradebookCatalogResponse,
   type CatalogAttendanceSlot,
+  type CatalogEstablishment,
   type CatalogPeriod,
   type TeacherGradebookCatalogPayload,
 } from "../api/teacherGradebookCatalog.js";
@@ -280,6 +283,11 @@ export interface TeacherClassCarnetCorrespondanceQuery extends TeacherQuery {
 export interface TeacherStudentCarnetCorrespondanceQuery extends TeacherQuery {
   studentId: number;
   schoolYear?: string;
+}
+
+export interface TeacherStudentNotesQuery extends TeacherQuery {
+  studentId: number;
+  periodCode?: string;
 }
 
 export interface TeacherAttendanceTargetsQuery extends TeacherQuery {}
@@ -606,6 +614,13 @@ export interface TeacherStudentCarnetCorrespondanceResult {
   schoolLife: VieScolairePayload;
   sessionsRdv: SessionsRdvPayload;
   selectedSchoolYear?: string;
+}
+
+export interface TeacherStudentNotesResult extends NotesPayload {
+  scope: "student";
+  teacher: TeacherChoice;
+  student: TeacherStudentChoice;
+  selectedPeriodCode?: string;
 }
 
 export interface TeacherAttendanceTargetsResult {
@@ -1602,6 +1617,7 @@ export class EdDataService {
 
     // Resolve class metadata from teacher's known classes
     const classInfo = teacher.data.classes?.find(c => c.id === query.classId);
+    const entity = normalized.data.entity;
 
     return {
       ok: true,
@@ -1610,8 +1626,8 @@ export class EdDataService {
         teacher: summarizeTeacher(teacher.data),
         class: {
           id: query.classId,
-          ...(classInfo?.label ? { name: classInfo.label } : {}),
-          ...(classInfo?.code ? { code: classInfo.code } : {}),
+          ...(classInfo?.label || entity?.label ? { name: classInfo?.label ?? entity?.label } : {}),
+          ...(classInfo?.code || entity?.code ? { code: classInfo?.code ?? entity?.code } : {}),
         },
         ...normalized.data,
       },
@@ -1659,6 +1675,7 @@ export class EdDataService {
     }
 
     const classInfo = teacher.data.classes?.find((candidate) => candidate.id === query.classId);
+    const entity = normalizedRoster.data.entity;
 
     return {
       ok: true,
@@ -1667,8 +1684,8 @@ export class EdDataService {
         teacher: summarizeTeacher(teacher.data),
         class: {
           id: query.classId,
-          ...(classInfo?.label ? { name: classInfo.label } : {}),
-          ...(classInfo?.code ? { code: classInfo.code } : {}),
+          ...(classInfo?.label || entity?.label ? { name: classInfo?.label ?? entity?.label } : {}),
+          ...(classInfo?.code || entity?.code ? { code: classInfo?.code ?? entity?.code } : {}),
         },
         students: normalizedRoster.data.students,
         studentCount: normalizedRoster.data.students.length,
@@ -1758,13 +1775,80 @@ export class EdDataService {
     };
   }
 
+  async getTeacherStudentNotes(
+    query: TeacherStudentNotesQuery,
+  ): Promise<DataResult<TeacherStudentNotesResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.studentId) || query.studentId <= 0) {
+      return this.failure("studentId must be a positive integer.", true);
+    }
+
+    const profileResponse = await this.fetchData(
+      teacherStudentProfileUrl(query.studentId, { version: this.http.version }),
+    );
+    if (!profileResponse.ok) return profileResponse;
+
+    const normalizedProfile = normalizeStudentProfileResponse(profileResponse.data);
+    if (!normalizedProfile.ok || !normalizedProfile.data) {
+      return this.failure(
+        normalizedProfile.message ?? `Unexpected teacher student profile response code ${normalizedProfile.code}`,
+        true,
+      );
+    }
+
+    const notesResponse = await this.fetchData(
+      teacherStudentNotesUrl(query.studentId, { version: this.http.version }),
+    );
+    if (!notesResponse.ok) return notesResponse;
+
+    const normalized = normalizeNotesResponse(notesResponse.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected notes response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const selectedPeriodCode = query.periodCode?.trim() || undefined;
+    const filteredPeriods = selectedPeriodCode
+      ? normalized.data.periods.filter((period) => period.code === selectedPeriodCode)
+      : normalized.data.periods;
+    const filteredGrades = selectedPeriodCode
+      ? normalized.data.grades.filter((grade) => grade.periodCode === selectedPeriodCode)
+      : normalized.data.grades;
+
+    if (selectedPeriodCode && filteredPeriods.length === 0 && filteredGrades.length === 0) {
+      return this.failure(
+        `Unknown periodCode '${selectedPeriodCode}'. Retry without a filter to inspect the available periods first.`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        teacher: summarizeTeacher(teacher.data),
+        student: summarizeTeacherObservedStudent(normalizedProfile.data),
+        settings: normalized.data.settings,
+        periods: filteredPeriods,
+        grades: filteredGrades,
+        expired: normalized.data.expired,
+        ...(normalized.data.classProfile ? { classProfile: normalized.data.classProfile } : {}),
+        ...(selectedPeriodCode ? { selectedPeriodCode } : {}),
+      },
+    };
+  }
+
   async listTeacherAttendanceTargets(
     query: TeacherAttendanceTargetsQuery = {},
   ): Promise<DataResult<TeacherAttendanceTargetsResult>> {
     const teacher = await this.ensureTeacherSelection(query.accountId);
     if (!teacher.ok) return teacher;
 
-    const catalog = await this.fetchTeacherCatalogPayload();
+    const catalog = await this.fetchTeacherCatalogPayload(teacher.data);
     if (!catalog.ok) return catalog;
 
     const catalogClasses = catalog.data.establishments.flatMap((establishment) =>
@@ -1957,7 +2041,7 @@ export class EdDataService {
     const teacher = await this.ensureTeacherSelection(query.accountId);
     if (!teacher.ok) return teacher;
 
-    const catalog = await this.fetchTeacherCatalogPayload();
+    const catalog = await this.fetchTeacherCatalogPayload(teacher.data);
     if (!catalog.ok) return catalog;
 
     return {
@@ -2053,7 +2137,7 @@ export class EdDataService {
     const teacher = await this.ensureTeacherSelection(query.accountId);
     if (!teacher.ok) return teacher;
 
-    const catalog = await this.fetchTeacherCatalogPayload();
+    const catalog = await this.fetchTeacherCatalogPayload(teacher.data);
     if (!catalog.ok) return catalog;
 
     return {
@@ -2171,7 +2255,7 @@ export class EdDataService {
     if (!teacher.ok) return teacher;
 
     const entityType = query.entityType ?? "C";
-    const catalog = await this.fetchTeacherCatalogPayload();
+    const catalog = await this.fetchTeacherCatalogPayload(teacher.data);
     if (!catalog.ok) return catalog;
 
     const targets = buildTeacherCouncilTargets(teacher.data, catalog.data);
@@ -2334,7 +2418,7 @@ export class EdDataService {
     return { ok: true, data: candidates };
   }
 
-  private async fetchTeacherCatalogPayload(): Promise<DataResult<TeacherGradebookCatalogPayload>> {
+  private async fetchTeacherCatalogPayload(account?: AccountInfo): Promise<DataResult<TeacherGradebookCatalogPayload>> {
     const response = await this.fetchData(
       teacherGradebookCatalogUrl({ version: this.http.version }),
     );
@@ -2348,7 +2432,10 @@ export class EdDataService {
       );
     }
 
-    return { ok: true, data: normalized.data };
+    return {
+      ok: true,
+      data: account ? reconcileTeacherCatalogPayload(account, normalized.data) : normalized.data,
+    };
   }
 
   private async fetchTeacherLslPayload(teacherId: number): Promise<DataResult<TeacherLslPayload>> {
@@ -2885,6 +2972,88 @@ function summarizeTeacherGradebookSubject(
   };
 }
 
+function reconcileTeacherCatalogPayload(
+  account: AccountInfo,
+  catalog: TeacherGradebookCatalogPayload,
+): TeacherGradebookCatalogPayload {
+  return {
+    establishments: catalog.establishments.map((establishment) => reconcileCatalogEstablishment(account, establishment)),
+    attendanceGrid: dedupeAttendanceSlots(catalog.attendanceGrid),
+  };
+}
+
+function reconcileCatalogEstablishment(
+  account: AccountInfo,
+  establishment: CatalogEstablishment,
+): CatalogEstablishment {
+  return {
+    ...establishment,
+    classes: establishment.classes.map((teacherClass) => reconcileCatalogClass(account, teacherClass)),
+  };
+}
+
+function reconcileCatalogClass(account: AccountInfo, teacherClass: CatalogClass): CatalogClass {
+  const metadata = resolveCatalogClassMetadata(account, teacherClass);
+
+  return {
+    ...teacherClass,
+    id: metadata?.id ?? teacherClass.id,
+    ...(metadata?.code ? { code: metadata.code } : {}),
+    ...(metadata?.label ? { label: metadata.label } : {}),
+    isPP: isCatalogClassPrincipalProfessorForTeacher(account, teacherClass),
+  };
+}
+
+function resolveCatalogClassMetadata(account: AccountInfo, teacherClass: CatalogClass) {
+  const metadataClasses = account.classes ?? [];
+  if (teacherClass.id > 0) {
+    const byId = metadataClasses.find((candidate) => candidate.id === teacherClass.id);
+    if (byId) return byId;
+  }
+
+  const classCode = normalizeCatalogLookupValue(teacherClass.code);
+  if (classCode) {
+    const byCode = metadataClasses.find((candidate) => normalizeCatalogLookupValue(candidate.code) === classCode);
+    if (byCode) return byCode;
+  }
+
+  const classLabel = normalizeCatalogLookupValue(teacherClass.label);
+  if (classLabel) {
+    const byLabel = metadataClasses.find((candidate) => normalizeCatalogLookupValue(candidate.label) === classLabel);
+    if (byLabel) return byLabel;
+  }
+
+  return undefined;
+}
+
+function isCatalogClassPrincipalProfessorForTeacher(account: AccountInfo, teacherClass: CatalogClass): boolean {
+  const principalProfessorIds = teacherClass.principalProfessorIds ?? [];
+  if (principalProfessorIds.length > 0) {
+    return principalProfessorIds.includes(account.id);
+  }
+  return teacherClass.isPP;
+}
+
+function normalizeCatalogLookupValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  return trimmed.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+
+function dedupeAttendanceSlots(slots: CatalogAttendanceSlot[]): CatalogAttendanceSlot[] {
+  const deduped: CatalogAttendanceSlot[] = [];
+  const seen = new Set<string>();
+
+  for (const slot of slots) {
+    const key = `${slot.start}-${slot.end}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(slot);
+  }
+
+  return deduped;
+}
+
 function mergeTeacherAttendanceTargets(
   primary: TeacherAttendanceTarget[],
   secondary: TeacherAttendanceTarget[],
@@ -2920,7 +3089,7 @@ function buildTeacherCouncilTargets(
   const targets = new Map<number, TeacherCouncilTarget>();
 
   for (const teacherClass of catalog.establishments.flatMap((establishment) => establishment.classes)) {
-    if (!teacherClass.isPP) continue;
+    if (!isCatalogClassPrincipalProfessorForTeacher(account, teacherClass)) continue;
 
     const metadata = metadataClasses.get(teacherClass.id);
     const previous = targets.get(teacherClass.id);
