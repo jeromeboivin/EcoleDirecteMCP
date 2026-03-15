@@ -13,6 +13,8 @@ import {
   studentProfileUrl,
   studentSessionsRdvUrl,
   teacherAttendanceRosterUrl,
+  teacherCahierDeTextesUrl,
+  teacherClassCarnetCorrespondanceUrl,
   teacherCouncilDetailUrl,
   teacherCouncilPredefinedAppreciationsUrl,
   teacherGradebookAppreciationsUrl,
@@ -22,9 +24,15 @@ import {
   teacherGradebookCatalogUrl,
   teacherGradebookPredefinedAppreciationsUrl,
   teacherGradebookSubjectRouteCode,
+  teacherLslUrl,
+  teacherMessageDetailUrl,
   teacherMessagesUrl,
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
+  teacherStudentCarnetCorrespondanceUrl,
+  teacherStudentProfileUrl,
+  teacherStudentSessionsRdvUrl,
+  teacherStudentVieScolaireUrl,
   telechargementUrl,
   studentVieScolaireUrl,
   type MessageMailbox,
@@ -83,6 +91,15 @@ import {
   type TeacherAttendancePayload,
 } from "../api/teacherAttendance.js";
 import {
+  normalizeTeacherCahierDeTextesResponse,
+  type TeacherCahierDeTextesPayload,
+  type TeacherCahierDeTextesSlot,
+} from "../api/teacherCahierDeTextes.js";
+import {
+  normalizeTeacherCarnetCorrespondanceClassResponse,
+  type TeacherCarnetCorrespondanceClassPayload,
+} from "../api/teacherCarnetCorrespondance.js";
+import {
   normalizeTeacherGradebookAppreciationsResponse,
   normalizeTeacherGradebookPredefinedAppreciationsResponse,
   type TeacherPredefinedAppreciation,
@@ -115,6 +132,14 @@ import {
   normalizeTeacherGradebookNotesResponse,
   type TeacherGradebookNotesPayload,
 } from "../api/teacherGradebookNotes.js";
+import {
+  normalizeTeacherLslResponse,
+  type TeacherLslCatalogEntry,
+  type TeacherLslClassSubject,
+  type TeacherLslNotationEntry,
+  type TeacherLslPayload,
+  type TeacherLslStudent,
+} from "../api/teacherLsl.js";
 import { ApiCode, type RawApiResponse } from "../api/normalize.js";
 import type { AuthService } from "../auth/service.js";
 import type { AccountInfo, AuthState, StudentInfo } from "../auth/types.js";
@@ -232,6 +257,12 @@ export interface TeacherMessageQuery extends TeacherQuery {
   itemsPerPage?: number;
 }
 
+export interface TeacherMessageDetailQuery extends TeacherQuery {
+  messageId: number;
+  messagesYear?: string;
+  mode?: "destinataire" | "expediteur";
+}
+
 export interface TeacherEmploiDuTempsQuery extends TeacherQuery {
   dateDebut?: string;
   dateFin?: string;
@@ -241,11 +272,36 @@ export interface TeacherClassStudentsQuery extends TeacherQuery {
   classId: number;
 }
 
+export interface TeacherClassCarnetCorrespondanceQuery extends TeacherQuery {
+  classId: number;
+  showAll?: boolean;
+}
+
+export interface TeacherStudentCarnetCorrespondanceQuery extends TeacherQuery {
+  studentId: number;
+  schoolYear?: string;
+}
+
 export interface TeacherAttendanceTargetsQuery extends TeacherQuery {}
+
+export interface TeacherCahierDeTextesQuery extends TeacherQuery {
+  dateDebut: string;
+  dateFin: string;
+  entityId?: number;
+  entityType?: TeacherGradebookEntityType;
+  subjectCode?: string;
+}
 
 export interface TeacherNoteSettingsQuery extends TeacherQuery {}
 
 export interface TeacherCouncilTargetsQuery extends TeacherQuery {}
+
+export interface TeacherLslClassesQuery extends TeacherQuery {}
+
+export interface TeacherLslStudentDetailQuery extends TeacherQuery {
+  classId: number;
+  studentId: number;
+}
 
 export interface TeacherCouncilDetailQuery extends TeacherQuery {
   entityId: number;
@@ -311,6 +367,14 @@ export interface TeacherChoice {
   establishment?: string;
   main?: boolean;
   current?: boolean;
+}
+
+export interface TeacherStudentChoice {
+  id: number;
+  name: string;
+  classId?: number;
+  className?: string;
+  classCode?: string;
 }
 
 export interface TeacherGradebookTarget {
@@ -505,6 +569,12 @@ export interface TeacherMessagesResult extends MessagesPayload {
   query: string;
 }
 
+export interface TeacherMessageDetailResult extends MessageDetailPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  messagesYear: string;
+}
+
 export interface TeacherEmploiDuTempsResult extends EmploiDuTempsPayload {
   scope: "teacher";
   teacher: TeacherChoice;
@@ -518,6 +588,26 @@ export interface TeacherClassStudentsResult extends TeacherClassStudentsPayload 
   class: ClassChoice;
 }
 
+export interface TeacherClassCarnetCorrespondanceResult extends TeacherCarnetCorrespondanceClassPayload {
+  scope: "class";
+  teacher: TeacherChoice;
+  class: ClassChoice;
+  students: TeacherClassStudentsPayload["students"];
+  studentCount: number;
+  showAll: boolean;
+}
+
+export interface TeacherStudentCarnetCorrespondanceResult {
+  scope: "student";
+  teacher: TeacherChoice;
+  student: TeacherStudentChoice;
+  profile: StudentProfilePayload;
+  carnet: CarnetCorrespondancePayload;
+  schoolLife: VieScolairePayload;
+  sessionsRdv: SessionsRdvPayload;
+  selectedSchoolYear?: string;
+}
+
 export interface TeacherAttendanceTargetsResult {
   scope: "teacher";
   teacher: TeacherChoice;
@@ -526,10 +616,82 @@ export interface TeacherAttendanceTargetsResult {
   suggestedSlots: CatalogAttendanceSlot[];
 }
 
+export interface TeacherCahierDeTextesResult extends TeacherCahierDeTextesPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  dateDebut: string;
+  dateFin: string;
+  selectedEntityId?: number;
+  selectedEntityType?: TeacherGradebookEntityType;
+  selectedSubjectCode?: string;
+}
+
 export interface TeacherCouncilTargetsResult {
   scope: "teacher";
   teacher: TeacherChoice;
   targets: TeacherCouncilTarget[];
+}
+
+export interface TeacherLslStudentSummary {
+  id: number;
+  name: string;
+  arrivalOrder?: string;
+  gender?: string;
+  subjectCount: number;
+}
+
+export interface TeacherLslClassSummary {
+  id: number;
+  label: string;
+  principalProfessor: boolean;
+  isTerminalClass: boolean;
+  isGeneralOrTechno: boolean;
+  isTechno: boolean;
+  isProfessional: boolean;
+  studentCount: number;
+  subjectCount: number;
+  students: TeacherLslStudentSummary[];
+  subjects: TeacherLslClassSubject[];
+}
+
+export interface TeacherLslClassContext {
+  id: number;
+  label: string;
+  principalProfessor: boolean;
+  isTerminalClass: boolean;
+  isGeneralOrTechno: boolean;
+  isTechno: boolean;
+  isProfessional: boolean;
+  studentCount: number;
+  subjectCount: number;
+  subjects: TeacherLslClassSubject[];
+}
+
+export interface TeacherLslClassesResult {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  classes: TeacherLslClassSummary[];
+  appreciations: TeacherLslCatalogEntry[];
+  examOpinions: TeacherLslCatalogEntry[];
+  schoolEngagements: TeacherLslCatalogEntry[];
+  detailedSchoolEngagements: TeacherLslCatalogEntry[];
+  notations: TeacherLslNotationEntry[];
+  headTeacherOnlyExamOpinion: boolean;
+  principalProfessorOnlyEngagements: boolean;
+}
+
+export interface TeacherLslStudentDetailResult {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  class: TeacherLslClassContext;
+  student: TeacherLslStudent;
+  appreciations: TeacherLslCatalogEntry[];
+  examOpinions: TeacherLslCatalogEntry[];
+  schoolEngagements: TeacherLslCatalogEntry[];
+  detailedSchoolEngagements: TeacherLslCatalogEntry[];
+  notations: TeacherLslNotationEntry[];
+  headTeacherOnlyExamOpinion: boolean;
+  principalProfessorOnlyEngagements: boolean;
 }
 
 export interface TeacherAttendanceRosterResult extends TeacherAttendancePayload {
@@ -1339,6 +1501,45 @@ export class EdDataService {
     };
   }
 
+  async getTeacherMessageDetail(
+    query: TeacherMessageDetailQuery,
+  ): Promise<DataResult<TeacherMessageDetailResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.messageId) || query.messageId <= 0) {
+      return this.failure("messageId must be a positive integer.", true);
+    }
+
+    const messagesYear = normalizeMessagesYear(query.messagesYear);
+    const response = await this.fetchData(
+      teacherMessageDetailUrl(teacher.data.id, query.messageId, {
+        mode: query.mode,
+        version: this.http.version,
+      }),
+      { anneeMessages: messagesYear },
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeMessageDetailResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected teacher message detail response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        messagesYear,
+        ...normalized.data,
+      },
+    };
+  }
+
   async getTeacherEmploiDuTemps(
     query: TeacherEmploiDuTempsQuery = {},
   ): Promise<DataResult<TeacherEmploiDuTempsResult>> {
@@ -1417,6 +1618,146 @@ export class EdDataService {
     };
   }
 
+  async getTeacherClassCarnetCorrespondance(
+    query: TeacherClassCarnetCorrespondanceQuery,
+  ): Promise<DataResult<TeacherClassCarnetCorrespondanceResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.classId) || query.classId <= 0) {
+      return this.failure("classId must be a positive integer.", true);
+    }
+
+    const showAll = query.showAll === true;
+    const rosterResponse = await this.fetchData(
+      teacherClassStudentsUrl(query.classId, { version: this.http.version }),
+    );
+    if (!rosterResponse.ok) return rosterResponse;
+
+    const classResponse = await this.fetchData(
+      teacherClassCarnetCorrespondanceUrl(query.classId, {
+        showAll,
+        version: this.http.version,
+      }),
+    );
+    if (!classResponse.ok) return classResponse;
+
+    const normalizedRoster = normalizeTeacherClassStudentsResponse(rosterResponse.data);
+    if (!normalizedRoster.ok || !normalizedRoster.data) {
+      return this.failure(
+        normalizedRoster.message ?? `Unexpected class students response code ${normalizedRoster.code}`,
+        true,
+      );
+    }
+
+    const normalizedClass = normalizeTeacherCarnetCorrespondanceClassResponse(classResponse.data);
+    if (!normalizedClass.ok || !normalizedClass.data) {
+      return this.failure(
+        normalizedClass.message ?? `Unexpected teacher carnet correspondance response code ${normalizedClass.code}`,
+        true,
+      );
+    }
+
+    const classInfo = teacher.data.classes?.find((candidate) => candidate.id === query.classId);
+
+    return {
+      ok: true,
+      data: {
+        scope: "class",
+        teacher: summarizeTeacher(teacher.data),
+        class: {
+          id: query.classId,
+          ...(classInfo?.label ? { name: classInfo.label } : {}),
+          ...(classInfo?.code ? { code: classInfo.code } : {}),
+        },
+        students: normalizedRoster.data.students,
+        studentCount: normalizedRoster.data.students.length,
+        showAll,
+        ...normalizedClass.data,
+      },
+    };
+  }
+
+  async getTeacherStudentCarnetCorrespondance(
+    query: TeacherStudentCarnetCorrespondanceQuery,
+  ): Promise<DataResult<TeacherStudentCarnetCorrespondanceResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.studentId) || query.studentId <= 0) {
+      return this.failure("studentId must be a positive integer.", true);
+    }
+
+    const selectedSchoolYear = query.schoolYear?.trim() || undefined;
+
+    const profileResponse = await this.fetchData(
+      teacherStudentProfileUrl(query.studentId, { version: this.http.version }),
+      { anneeScolaire: selectedSchoolYear ?? "" },
+    );
+    if (!profileResponse.ok) return profileResponse;
+
+    const carnetResponse = await this.fetchData(
+      teacherStudentCarnetCorrespondanceUrl(query.studentId, { version: this.http.version }),
+    );
+    if (!carnetResponse.ok) return carnetResponse;
+
+    const schoolLifeResponse = await this.fetchData(
+      teacherStudentVieScolaireUrl(query.studentId, { version: this.http.version }),
+    );
+    if (!schoolLifeResponse.ok) return schoolLifeResponse;
+
+    const sessionsResponse = await this.fetchData(
+      teacherStudentSessionsRdvUrl(query.studentId, { version: this.http.version }),
+    );
+    if (!sessionsResponse.ok) return sessionsResponse;
+
+    const normalizedProfile = normalizeStudentProfileResponse(profileResponse.data);
+    if (!normalizedProfile.ok || !normalizedProfile.data) {
+      return this.failure(
+        normalizedProfile.message ?? `Unexpected teacher student profile response code ${normalizedProfile.code}`,
+        true,
+      );
+    }
+
+    const normalizedCarnet = normalizeCarnetCorrespondanceResponse(carnetResponse.data);
+    if (!normalizedCarnet.ok || !normalizedCarnet.data) {
+      return this.failure(
+        normalizedCarnet.message ?? `Unexpected teacher student carnet response code ${normalizedCarnet.code}`,
+        true,
+      );
+    }
+
+    const normalizedSchoolLife = normalizeVieScolaireResponse(schoolLifeResponse.data);
+    if (!normalizedSchoolLife.ok || !normalizedSchoolLife.data) {
+      return this.failure(
+        normalizedSchoolLife.message ?? `Unexpected teacher student school life response code ${normalizedSchoolLife.code}`,
+        true,
+      );
+    }
+
+    const normalizedSessions = normalizeSessionsRdvResponse(sessionsResponse.data);
+    if (!normalizedSessions.ok || !normalizedSessions.data) {
+      return this.failure(
+        normalizedSessions.message ?? `Unexpected teacher student sessions RDV response code ${normalizedSessions.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "student",
+        teacher: summarizeTeacher(teacher.data),
+        student: summarizeTeacherObservedStudent(normalizedProfile.data),
+        profile: normalizedProfile.data,
+        carnet: normalizedCarnet.data,
+        schoolLife: normalizedSchoolLife.data,
+        sessionsRdv: normalizedSessions.data,
+        ...(selectedSchoolYear ? { selectedSchoolYear } : {}),
+      },
+    };
+  }
+
   async listTeacherAttendanceTargets(
     query: TeacherAttendanceTargetsQuery = {},
   ): Promise<DataResult<TeacherAttendanceTargetsResult>> {
@@ -1466,6 +1807,72 @@ export class EdDataService {
         classes: mergeTeacherAttendanceTargets(metadataClasses, catalogClasses),
         groups: mergeTeacherAttendanceTargets(metadataGroups, catalogGroups),
         suggestedSlots: catalog.data.attendanceGrid,
+      },
+    };
+  }
+
+  async getTeacherCahierDeTextes(
+    query: TeacherCahierDeTextesQuery,
+  ): Promise<DataResult<TeacherCahierDeTextesResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const dateDebut = normalizeIsoDate(query.dateDebut);
+    const dateFin = normalizeIsoDate(query.dateFin);
+    if (!dateDebut) {
+      return this.failure("dateDebut must use YYYY-MM-DD format.", true);
+    }
+    if (!dateFin) {
+      return this.failure("dateFin must use YYYY-MM-DD format.", true);
+    }
+    if (dateDebut > dateFin) {
+      return this.failure("dateDebut must be before or equal to dateFin.", true);
+    }
+
+    const response = await this.fetchData(
+      teacherCahierDeTextesUrl(dateDebut, dateFin, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherCahierDeTextesResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected teacher cahier de textes response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const selectedEntityId = query.entityId;
+    const selectedEntityType = query.entityType?.trim() as TeacherGradebookEntityType | undefined;
+    const selectedSubjectCode = query.subjectCode?.trim();
+    const slots = normalized.data.slots.filter((slot) => {
+      if (selectedEntityId !== undefined && slot.entityId !== selectedEntityId) return false;
+      if (selectedEntityType && slot.entityType !== selectedEntityType) return false;
+      if (selectedSubjectCode && slot.subjectCode?.toLowerCase() !== selectedSubjectCode.toLowerCase()) return false;
+      return true;
+    });
+
+    if ((selectedEntityId !== undefined || selectedEntityType || selectedSubjectCode) && slots.length === 0) {
+      return this.failure(
+        "No teacher cahier de textes slots match the selected filters. Retry without filters to inspect the available entity and subject codes first.",
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        dateDebut,
+        dateFin,
+        slots,
+        slotCount: slots.length,
+        homeworkCount: slots.filter((slot) => slot.hasHomework).length,
+        lessonContentCount: slots.filter((slot) => slot.hasLessonContent).length,
+        ...(selectedEntityId !== undefined ? { selectedEntityId } : {}),
+        ...(selectedEntityType ? { selectedEntityType } : {}),
+        ...(selectedSubjectCode ? { selectedSubjectCode } : {}),
       },
     };
   }
@@ -1559,6 +1966,83 @@ export class EdDataService {
         scope: "teacher",
         teacher: summarizeTeacher(teacher.data),
         targets: buildTeacherCouncilTargets(teacher.data, catalog.data),
+      },
+    };
+  }
+
+  async listTeacherLslClasses(
+    query: TeacherLslClassesQuery = {},
+  ): Promise<DataResult<TeacherLslClassesResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const lsl = await this.fetchTeacherLslPayload(teacher.data.id);
+    if (!lsl.ok) return lsl;
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        classes: lsl.data.classes.map((entry) => summarizeTeacherLslClass(entry)),
+        appreciations: lsl.data.appreciations,
+        examOpinions: lsl.data.examOpinions,
+        schoolEngagements: lsl.data.schoolEngagements,
+        detailedSchoolEngagements: lsl.data.detailedSchoolEngagements,
+        notations: lsl.data.notations,
+        headTeacherOnlyExamOpinion: lsl.data.headTeacherOnlyExamOpinion,
+        principalProfessorOnlyEngagements: lsl.data.principalProfessorOnlyEngagements,
+      },
+    };
+  }
+
+  async getTeacherLslStudentDetail(
+    query: TeacherLslStudentDetailQuery,
+  ): Promise<DataResult<TeacherLslStudentDetailResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.classId) || query.classId <= 0) {
+      return this.failure("classId must be a positive integer.", true);
+    }
+    if (!Number.isInteger(query.studentId) || query.studentId <= 0) {
+      return this.failure("studentId must be a positive integer.", true);
+    }
+
+    const lsl = await this.fetchTeacherLslPayload(teacher.data.id);
+    if (!lsl.ok) return lsl;
+
+    const classEntry = lsl.data.classes.find((candidate) => candidate.id === query.classId);
+    if (!classEntry) {
+      return this.failure(
+        `No LSL class matches classId ${query.classId}. Use list_teacher_lsl_classes first.`,
+        true,
+      );
+    }
+
+    const student = classEntry.students.find((candidate) => candidate.id === query.studentId);
+    if (!student) {
+      const availableStudents = classEntry.students.map((candidate) => `${candidate.id}:${candidate.name}`).join(", ");
+      return this.failure(
+        `No LSL student matches studentId ${query.studentId} in ${classEntry.label}. Available students: ${availableStudents || "none"}.`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        class: summarizeTeacherLslClassContext(classEntry),
+        student,
+        appreciations: lsl.data.appreciations,
+        examOpinions: lsl.data.examOpinions,
+        schoolEngagements: lsl.data.schoolEngagements,
+        detailedSchoolEngagements: lsl.data.detailedSchoolEngagements,
+        notations: lsl.data.notations,
+        headTeacherOnlyExamOpinion: lsl.data.headTeacherOnlyExamOpinion,
+        principalProfessorOnlyEngagements: lsl.data.principalProfessorOnlyEngagements,
       },
     };
   }
@@ -1860,6 +2344,23 @@ export class EdDataService {
     if (!normalized.ok || !normalized.data) {
       return this.failure(
         normalized.message ?? `Unexpected teacher catalog response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return { ok: true, data: normalized.data };
+  }
+
+  private async fetchTeacherLslPayload(teacherId: number): Promise<DataResult<TeacherLslPayload>> {
+    const response = await this.fetchData(
+      teacherLslUrl(teacherId, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherLslResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected teacher LSL response code ${normalized.code}`,
         true,
       );
     }
@@ -2321,6 +2822,16 @@ function summarizeTeacher(account: AccountInfo): TeacherChoice {
   };
 }
 
+function summarizeTeacherObservedStudent(profile: StudentProfilePayload): TeacherStudentChoice {
+  const name = profile.fullName.trim() || [profile.firstName, profile.lastName].filter(Boolean).join(" ").trim();
+  return {
+    id: profile.id,
+    name: name || `student ${profile.id}`,
+    ...(profile.classId !== undefined ? { classId: profile.classId } : {}),
+    ...(profile.classLabel ? { className: profile.classLabel } : {}),
+  };
+}
+
 function summarizeTeacherAttendanceTarget(
   account: AccountInfo,
   entityId: number,
@@ -2475,6 +2986,48 @@ function mergeTeacherCouncilPeriods(
   }
 
   return [...merged.values()];
+}
+
+function summarizeTeacherLslClass(classEntry: TeacherLslPayload["classes"][number]): TeacherLslClassSummary {
+  return {
+    id: classEntry.id,
+    label: classEntry.label,
+    principalProfessor: classEntry.principalProfessor,
+    isTerminalClass: classEntry.isTerminalClass,
+    isGeneralOrTechno: classEntry.isGeneralOrTechno,
+    isTechno: classEntry.isTechno,
+    isProfessional: classEntry.isProfessional,
+    studentCount: classEntry.studentCount,
+    subjectCount: classEntry.subjectCount,
+    students: classEntry.students.map((student) => ({
+      id: student.id,
+      name: student.name,
+      ...(student.arrivalOrder ? { arrivalOrder: student.arrivalOrder } : {}),
+      ...(student.gender ? { gender: student.gender } : {}),
+      subjectCount: student.subjectCount,
+    })),
+    subjects: classEntry.subjects,
+  };
+}
+
+function summarizeTeacherLslClassContext(classEntry: TeacherLslPayload["classes"][number]): TeacherLslClassContext {
+  return {
+    id: classEntry.id,
+    label: classEntry.label,
+    principalProfessor: classEntry.principalProfessor,
+    isTerminalClass: classEntry.isTerminalClass,
+    isGeneralOrTechno: classEntry.isGeneralOrTechno,
+    isTechno: classEntry.isTechno,
+    isProfessional: classEntry.isProfessional,
+    studentCount: classEntry.studentCount,
+    subjectCount: classEntry.subjectCount,
+    subjects: classEntry.subjects,
+  };
+}
+
+function normalizeIsoDate(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed) ? trimmed : undefined;
 }
 
 function normalizeAttendanceTime(value: string): string | undefined {

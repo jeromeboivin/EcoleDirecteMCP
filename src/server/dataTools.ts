@@ -20,8 +20,10 @@ import type {
   StudentProfileResult,
   StudentSessionsRdvResult,
   StudentVieScolaireResult,
+  TeacherCahierDeTextesResult,
   TeacherAttendanceRosterResult,
   TeacherAttendanceTargetsResult,
+  TeacherClassCarnetCorrespondanceResult,
   TeacherClassStudentsResult,
   TeacherCouncilDetailResult,
   TeacherCouncilTargetsResult,
@@ -29,9 +31,13 @@ import type {
   TeacherGradebookAppreciationsResult,
   TeacherGradebookCatalogResult,
   TeacherGradebookNotesResult,
+  TeacherLslClassesResult,
+  TeacherLslStudentDetailResult,
+  TeacherMessageDetailResult,
   TeacherMessagesResult,
   TeacherNoteSettingsResult,
   TeacherRoomsResult,
+  TeacherStudentCarnetCorrespondanceResult,
 } from "../ecoledirecte/data/service.js";
 import { log } from "../ecoledirecte/logging.js";
 
@@ -105,6 +111,13 @@ const teacherMessageFieldsSchema = {
   ...messageFieldsSchema,
 };
 
+const teacherMessageDetailQuerySchema = {
+  ...teacherQuerySchema,
+  messageId: z.number().int().positive(),
+  messagesYear: z.string().optional(),
+  mode: z.enum(["destinataire", "expediteur"]).optional(),
+};
+
 const teacherEmploiDuTempsQuerySchema = {
   ...teacherQuerySchema,
   dateDebut: z.string(),
@@ -114,6 +127,33 @@ const teacherEmploiDuTempsQuerySchema = {
 const teacherClassStudentsQuerySchema = {
   ...teacherQuerySchema,
   classId: z.number().int().positive(),
+};
+
+const teacherClassCarnetCorrespondanceQuerySchema = {
+  ...teacherQuerySchema,
+  classId: z.number().int().positive(),
+  showAll: z.boolean().optional(),
+};
+
+const teacherStudentCarnetCorrespondanceQuerySchema = {
+  ...teacherQuerySchema,
+  studentId: z.number().int().positive(),
+  schoolYear: z.string().optional(),
+};
+
+const teacherCahierDeTextesQuerySchema = {
+  ...teacherQuerySchema,
+  dateDebut: z.string(),
+  dateFin: z.string(),
+  entityId: z.number().int().positive().optional(),
+  entityType: z.enum(["C", "G"]).optional(),
+  subjectCode: z.string().min(1).optional(),
+};
+
+const teacherLslStudentDetailQuerySchema = {
+  ...teacherQuerySchema,
+  classId: z.number().int().positive(),
+  studentId: z.number().int().positive(),
 };
 
 const teacherAttendanceRosterQuerySchema = {
@@ -429,6 +469,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 
   server.tool(
+    "get_teacher_message_detail",
+    "Get the full content of a selected teacher message. This mirrors opening the message in the teacher messagerie and may mark it as read.",
+    teacherMessageDetailQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_message_detail tool invoked");
+      const result = await data.getTeacherMessageDetail(args);
+      return resultForTeacherMessageDetail(result);
+    }),
+  );
+
+  server.tool(
     "get_teacher_emploi_du_temps",
     "Get teacher timetable for a date range. Requires a teacher (type P) profile.",
     teacherEmploiDuTempsQuerySchema,
@@ -462,6 +513,28 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 
   server.tool(
+    "get_teacher_class_carnet_correspondance",
+    "Get the teacher carnet de correspondance overview for a class, including the roster, correspondence entries, sanction or incident requests, and follow-up categories. Use list_teacher_classes first to find classId.",
+    teacherClassCarnetCorrespondanceQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_class_carnet_correspondance tool invoked");
+      const result = await data.getTeacherClassCarnetCorrespondance(args);
+      return resultForTeacherClassCarnetCorrespondance(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_student_carnet_correspondance",
+    "Get the teacher-side carnet de correspondance student modal data: profile, correspondence history, school-life data, and RDV sessions. Use get_teacher_class_carnet_correspondance or get_teacher_class_students first to find studentId.",
+    teacherStudentCarnetCorrespondanceQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_student_carnet_correspondance tool invoked");
+      const result = await data.getTeacherStudentCarnetCorrespondance(args);
+      return resultForTeacherStudentCarnetCorrespondance(result);
+    }),
+  );
+
+  server.tool(
     "list_teacher_attendance_targets",
     "List teacher attendance classes, groups, and suggested time slots. Uses account metadata plus the attendance grid exposed by niveauxListe.",
     teacherQuerySchema,
@@ -469,6 +542,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "list_teacher_attendance_targets tool invoked");
       const result = await data.listTeacherAttendanceTargets(args);
       return resultForTeacherAttendanceTargets(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_cahier_de_textes",
+    "Get teacher cahier de textes session slots for a date range, with inline homework and lesson-content details. Optional filters let you narrow the results to one class or group and subject.",
+    teacherCahierDeTextesQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_cahier_de_textes tool invoked");
+      const result = await data.getTeacherCahierDeTextes(args);
+      return resultForTeacherCahierDeTextes(result);
     }),
   );
 
@@ -546,6 +630,28 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       log("info", "list_teacher_council_targets tool invoked");
       const result = await data.listTeacherCouncilTargets(args);
       return resultForTeacherCouncilTargets(result);
+    }),
+  );
+
+  server.tool(
+    "list_teacher_lsl_classes",
+    "List teacher LSL / Parcoursup classes, student choices, subject catalogs, and the shared appreciation or notation catalogs returned by the LSL screen.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_lsl_classes tool invoked");
+      const result = await data.listTeacherLslClasses(args);
+      return resultForTeacherLslClasses(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_lsl_student_detail",
+    "Get a scoped LSL / Parcoursup student detail from the teacher screen, including subject appreciations, competencies, exam opinions, engagements, and notation labels. Use list_teacher_lsl_classes first to find classId and studentId.",
+    teacherLslStudentDetailQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_lsl_student_detail tool invoked");
+      const result = await data.getTeacherLslStudentDetail(args);
+      return resultForTeacherLslStudentDetail(result);
     }),
   );
 
@@ -692,6 +798,15 @@ function resultForTeacherMessages(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherMessageDetail(
+  result: Awaited<ReturnType<EdDataService["getTeacherMessageDetail"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const sender = result.data.from?.name ?? "unknown sender";
+  const summary = `Loaded teacher message "${result.data.subject}" from ${sender} for ${result.data.teacher.name}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherEmploiDuTemps(
   result: Awaited<ReturnType<EdDataService["getTeacherEmploiDuTemps"]>>,
 ) {
@@ -717,11 +832,36 @@ function resultForTeacherClassStudents(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherClassCarnetCorrespondance(
+  result: Awaited<ReturnType<EdDataService["getTeacherClassCarnetCorrespondance"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const classLabel = result.data.class.name ?? result.data.class.code ?? `class ${result.data.class.id}`;
+  const summary = `Teacher carnet de correspondance for ${classLabel}: ${result.data.studentCount} student(s), ${result.data.correspondenceCount} correspondence entr${result.data.correspondenceCount === 1 ? "y" : "ies"}, ${result.data.disciplinaryRequestCount} request(s), and ${result.data.followUpCount} follow-up(s).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherStudentCarnetCorrespondance(
+  result: Awaited<ReturnType<EdDataService["getTeacherStudentCarnetCorrespondance"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `Teacher student carnet detail for ${result.data.student.name}: ${result.data.carnet.correspondences.length} correspondence entr${result.data.carnet.correspondences.length === 1 ? "y" : "ies"}, ${result.data.carnet.followUps.length} follow-up(s), ${result.data.schoolLife.absencesRetards.length} absence(s) or retard(s), and ${result.data.sessionsRdv.sessions.length} appointment session(s).`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherAttendanceTargets(
   result: Awaited<ReturnType<EdDataService["listTeacherAttendanceTargets"]>>,
 ) {
   if (!result.ok) return failureResult(result);
   const summary = `Attendance targets for ${result.data.teacher.name}: ${result.data.classes.length} class(es), ${result.data.groups.length} group(s), ${result.data.suggestedSlots.length} suggested slot(s).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherCahierDeTextes(
+  result: Awaited<ReturnType<EdDataService["getTeacherCahierDeTextes"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `Teacher cahier de textes for ${result.data.teacher.name}: ${result.data.slotCount} slot(s), ${result.data.homeworkCount} with homework, and ${result.data.lessonContentCount} with lesson content from ${result.data.dateDebut} to ${result.data.dateFin}.`;
   return successResult(summary, result.data);
 }
 
@@ -797,6 +937,23 @@ function resultForTeacherCouncilTargets(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherLslClasses(
+  result: Awaited<ReturnType<EdDataService["listTeacherLslClasses"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const studentCount = result.data.classes.reduce((sum, entry) => sum + entry.studentCount, 0);
+  const summary = `Teacher LSL / Parcoursup classes for ${result.data.teacher.name}: ${result.data.classes.length} class(es), ${studentCount} student(s), and ${result.data.notations.length} notation label(s).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherLslStudentDetail(
+  result: Awaited<ReturnType<EdDataService["getTeacherLslStudentDetail"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `Teacher LSL / Parcoursup student detail for ${result.data.student.name}: ${result.data.student.subjectCount} subject(s), ${result.data.student.examOpinions.length} exam opinion entr${result.data.student.examOpinions.length === 1 ? "y" : "ies"}, ${result.data.student.schoolEngagements.length + result.data.student.detailedSchoolEngagements.length} engagement entr${result.data.student.schoolEngagements.length + result.data.student.detailedSchoolEngagements.length === 1 ? "y" : "ies"}, in ${result.data.class.label}.`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherCouncilDetail(
   result: Awaited<ReturnType<EdDataService["getTeacherCouncilDetail"]>>,
 ) {
@@ -839,8 +996,10 @@ function successResult(
     | StudentProfileResult
     | StudentSessionsRdvResult
     | StudentVieScolaireResult
+    | TeacherCahierDeTextesResult
     | TeacherAttendanceRosterResult
     | TeacherAttendanceTargetsResult
+    | TeacherClassCarnetCorrespondanceResult
     | TeacherClassStudentsResult
     | TeacherCouncilDetailResult
     | TeacherCouncilTargetsResult
@@ -848,9 +1007,13 @@ function successResult(
     | TeacherGradebookAppreciationsResult
     | TeacherGradebookCatalogResult
     | TeacherGradebookNotesResult
+    | TeacherLslClassesResult
+    | TeacherLslStudentDetailResult
+    | TeacherMessageDetailResult
     | TeacherMessagesResult
     | TeacherNoteSettingsResult
     | TeacherRoomsResult
+    | TeacherStudentCarnetCorrespondanceResult
     | { scope: string; teacher: { name: string }; classes: unknown },
 ) {
   return {

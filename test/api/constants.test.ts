@@ -17,8 +17,12 @@ import {
   studentProfileUrl,
   studentSessionsRdvUrl,
   teacherAttendanceRosterUrl,
+  teacherCahierDeTextesUrl,
+  teacherClassCarnetCorrespondanceUrl,
   teacherCouncilDetailUrl,
   teacherCouncilPredefinedAppreciationsUrl,
+  teacherLslUrl,
+  teacherMessageDetailUrl,
   studentVieScolaireUrl,
   teacherClassStudentsUrl,
   teacherEmploiDuTempsUrl,
@@ -26,6 +30,10 @@ import {
   teacherMessagesUrl,
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
+  teacherStudentCarnetCorrespondanceUrl,
+  teacherStudentProfileUrl,
+  teacherStudentSessionsRdvUrl,
+  teacherStudentVieScolaireUrl,
   API_BASE,
   API_VERSION,
   DEFAULT_APP_VERSION,
@@ -225,6 +233,15 @@ describe("teacherMessagesUrl", () => {
   });
 });
 
+describe("teacherMessageDetailUrl", () => {
+  it("returns the teacher message detail endpoint on TEACHER_API_BASE", () => {
+    const url = teacherMessageDetailUrl(221, 50507);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/enseignants/221/messages/50507.awp?verbe=get&mode=destinataire&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
 describe("teacherEmploiDuTempsUrl", () => {
   it("returns the teacher timetable endpoint on TEACHER_API_BASE", () => {
     const url = teacherEmploiDuTempsUrl(221);
@@ -239,6 +256,67 @@ describe("teacherClassStudentsUrl", () => {
     const url = teacherClassStudentsUrl(42);
     expect(url).toBe(
       `${TEACHER_API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherClassCarnetCorrespondanceUrl", () => {
+  it("returns the class carnet de correspondance endpoint on TEACHER_API_BASE", () => {
+    const url = teacherClassCarnetCorrespondanceUrl(67);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/classes/67/carnetCorrespondance.awp?verbe=get&showAll=0&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+
+  it("includes showAll=1 when requested", () => {
+    const url = teacherClassCarnetCorrespondanceUrl(67, { showAll: true });
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/classes/67/carnetCorrespondance.awp?verbe=get&showAll=1&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherStudentProfileUrl", () => {
+  it("returns the teacher-scoped student profile endpoint on TEACHER_API_BASE", () => {
+    const url = teacherStudentProfileUrl(3721);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/eleves/3721.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherStudentCarnetCorrespondanceUrl", () => {
+  it("returns the teacher-scoped student carnet endpoint on TEACHER_API_BASE", () => {
+    const url = teacherStudentCarnetCorrespondanceUrl(3721);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/eleves/3721/eleveCarnetCorrespondance.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherStudentVieScolaireUrl", () => {
+  it("returns the teacher-scoped student school-life endpoint on TEACHER_API_BASE", () => {
+    const url = teacherStudentVieScolaireUrl(3721);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/eleves/3721/viescolaire.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherStudentSessionsRdvUrl", () => {
+  it("returns the teacher-scoped student sessions RDV endpoint on TEACHER_API_BASE", () => {
+    const url = teacherStudentSessionsRdvUrl(3721);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/E/3721/sessionsRdv.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherCahierDeTextesUrl", () => {
+  it("returns the teacher cahier de textes loadslots endpoint on TEACHER_API_BASE", () => {
+    const url = teacherCahierDeTextesUrl("2026-01-26", "2026-05-03");
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/cahierdetexte/loadslots/2026-01-26/2026-05-03.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
@@ -282,6 +360,15 @@ describe("teacherGradebookCatalogUrl", () => {
     const url = teacherGradebookCatalogUrl();
     expect(url).toBe(
       `${TEACHER_API_BASE}/${API_VERSION}/niveauxListe.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherLslUrl", () => {
+  it("returns the teacher LSL endpoint on TEACHER_API_BASE", () => {
+    const url = teacherLslUrl(221);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/P/221/LSL.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });

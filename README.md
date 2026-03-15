@@ -27,16 +27,22 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Family documents** — returns family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises) through the authenticated `familledocuments.awp` route.
 - **Family invoices** — lists family-level invoices and signature documents through the authenticated `factures.awp` route.
 - **Teacher messagerie** — lists teacher-level messages through the authenticated `enseignants/{id}/messages.awp` route.
+- **Teacher message detail** — opens a selected teacher message read-only, decodes its HTML content, and mirrors the teacher UI behavior that may mark it as read.
 - **Teacher emploi du temps** — returns teacher timetable events for a date range through the authenticated `P/{id}/emploidutemps.awp` route.
 - **Teacher classes** — lists classes assigned to the teacher from account metadata.
 - **Teacher class students** — returns the roster of students in a specific class through the authenticated `classes/{classId}/eleves.awp` route.
+- **Teacher class carnet de correspondance** — returns the class-scoped carnet overview used by the teacher UI, including roster, correspondence entries, sanction or incident requests, and follow-up categories.
+- **Teacher student carnet de correspondance** — returns the student modal data preloaded by the teacher carnet screen: profile, correspondence history, school-life data, and RDV sessions.
 - **Teacher attendance targets** — lists teacher attendance classes, groups, and suggested time slots by combining account metadata with the attendance grid exposed by `niveauxListe.awp`.
 - **Teacher attendance roster** — returns the attendance roster for a selected class or group and time window through the authenticated `classes/{entityId}/eleves.awp` or `groupes/{entityId}/eleves.awp` route, including per-student stage, dispense, prior-absence, and device flags.
+- **Teacher cahier de textes** — returns teacher session slots for a date range through the authenticated `cahierdetexte/loadslots/{dateDebut}/{dateFin}.awp` route, including inline homework and lesson-content details.
 - **Teacher rooms** — lists available rooms through the authenticated `salles.awp` route.
 - **Teacher note settings** — returns grading configuration through the authenticated `enseignants/{id}/parametrages.awp` route.
 - **Teacher gradebook catalog** — returns the full gradebook navigation model (establishments, classes, groups, periods, subjects, council dates, attendance grid) through the authenticated `niveauxListe.awp` route.
 - **Teacher gradebook notes** — returns the populated grade grid for a selected class or group, period, and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp` route.
 - **Teacher gradebook appreciations** — returns per-student appreciation content plus predefined appreciation templates for a selected class or group and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp` and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
+- **Teacher LSL / Parcoursup classes** — lists the classes, students, subject catalogs, and shared notation or appreciation catalogs returned by the teacher `LSL` screen.
+- **Teacher LSL / Parcoursup student detail** — returns a scoped student detail with exam opinions, engagements, subject appreciations, and competency evaluations from the teacher `LSL` payload.
 - **Teacher council targets** — lists the principal-professor classes and available council periods exposed by `ConseilDeClasse`, derived from the authenticated `niveauxListe.awp` route.
 - **Teacher council detail** — returns council student rows, mention options, class appreciation settings, and both principal-professor and teacher predefined appreciation templates through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/conseilDeClasse.awp`, `Prof Principal/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp`, and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
@@ -165,16 +171,22 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `get_family_documents` | Get family-level documents grouped by category |
 | `list_family_invoices` | List family-level invoices and signature documents |
 | `list_teacher_messages` | List messages for the authenticated teacher account |
+| `get_teacher_message_detail` | Get the full content of a selected teacher message |
 | `get_teacher_emploi_du_temps` | Get teacher timetable for a date range (`dateDebut`, `dateFin`) |
 | `list_teacher_classes` | List classes assigned to the teacher (from account metadata) |
 | `get_teacher_class_students` | Get the student roster for a class (`classId`) |
+| `get_teacher_class_carnet_correspondance` | Get the teacher carnet de correspondance overview for a class (`classId`) |
+| `get_teacher_student_carnet_correspondance` | Get the teacher-side carnet de correspondance student detail bundle (`studentId`) |
 | `list_teacher_attendance_targets` | List teacher attendance classes, groups, and suggested time slots |
+| `get_teacher_cahier_de_textes` | Get teacher cahier de textes slots for a date range, with optional class/group and subject filters |
 | `get_teacher_attendance_roster` | Get the attendance roster for a selected class or group and time window (`entityId`, `entityType`, `startTime`, `endTime`) |
 | `list_teacher_rooms` | List available rooms for the teacher's establishment |
 | `get_teacher_note_settings` | Get grading configuration (components, homework types, establishment parameters) |
 | `get_teacher_gradebook_catalog` | Get the full gradebook navigation catalog (establishments, classes, groups, periods, subjects, council dates, attendance grid) |
 | `get_teacher_gradebook_notes` | Get the populated grade grid for a selected class or group, period, and subject |
 | `get_teacher_gradebook_appreciations` | Get teacher appreciation data plus predefined appreciation templates for a selected class or group and subject |
+| `list_teacher_lsl_classes` | List teacher LSL / Parcoursup classes, student choices, subject catalogs, and shared notation labels |
+| `get_teacher_lsl_student_detail` | Get a scoped teacher LSL / Parcoursup student detail (`classId`, `studentId`) |
 | `list_teacher_council_targets` | List principal-professor council classes and their available periods |
 | `get_teacher_council_detail` | Get council student rows, mention options, class appreciation settings, and predefined appreciation templates for a selected class and period |
 | `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
@@ -271,15 +283,23 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Family documents** → `POST /v3/familledocuments.awp?archive=&verbe=get&v=4.96.3`
 - **Family invoices** → `POST /v3/factures.awp?verbe=get&v=4.96.3`
 - **Teacher messages** → `POST /v3/enseignants/{teacherId}/messages.awp?force=false&typeRecuperation=received&...&verbe=get&v=4.96.3`
+- **Teacher message detail** → `POST /v3/enseignants/{teacherId}/messages/{messageId}.awp?verbe=get&mode=destinataire&v=4.96.3` with `data={"anneeMessages":"2025-2026"}`
 - **Teacher emploi du temps** → `POST /v3/P/{teacherId}/emploidutemps.awp?verbe=get&v=4.96.3` with `data={"dateDebut":"YYYY-MM-DD","dateFin":"YYYY-MM-DD","avecTpiTemp":false}`
 - **Teacher class students** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3`
+- **Teacher class carnet de correspondance** → `POST /v3/classes/{classId}/carnetCorrespondance.awp?verbe=get&showAll=0&v=4.96.3`
+- **Teacher student profile from carnet modal** → `POST /v3/eleves/{studentId}.awp?verbe=get&v=4.96.3` on `apip.ecoledirecte.com`, with `data={"anneeScolaire":""}`
+- **Teacher student carnet de correspondance from carnet modal** → `POST /v3/eleves/{studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=4.96.3` on `apip.ecoledirecte.com`
+- **Teacher student vie scolaire from carnet modal** → `POST /v3/eleves/{studentId}/viescolaire.awp?verbe=get&v=4.96.3` on `apip.ecoledirecte.com`
+- **Teacher student sessions RDV from carnet modal** → `POST /v3/E/{studentId}/sessionsRdv.awp?verbe=get&v=4.96.3` on `apip.ecoledirecte.com`
 - **Teacher attendance targets** → `POST /v3/niveauxListe.awp?verbe=get&v=4.96.3` with the attendance grid read from `data[].parametres.grille`
 - **Teacher attendance roster** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3` or `POST /v3/groupes/{groupId}/eleves.awp?verbe=get&v=4.96.3` with `data={"heureDebut":"HH:MM","heureFin":"HH:MM"}`
+- **Teacher cahier de textes** → `POST /v3/cahierdetexte/loadslots/{dateDebut}/{dateFin}.awp?verbe=get&v=4.96.3` with inline `aFaire` and `seance` content blocks already present in the response
 - **Teacher rooms** → `POST /v3/salles.awp?verbe=get&v=4.96.3`
 - **Teacher note settings** → `POST /v3/enseignants/{teacherId}/parametrages.awp?verbe=get&v=4.96.3`
 - **Teacher gradebook notes** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp?verbe=get&v=4.96.3`
 - **Teacher gradebook appreciations** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp?verbe=get&v=4.96.3`
 - **Teacher predefined appreciations** → `POST /v3/Enseignant/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3`
+- **Teacher LSL / Parcoursup** → `POST /v3/P/{teacherId}/LSL.awp?verbe=get&v=4.96.3`; returns shared catalogs plus per-class students and subjects in a single payload
 - **Teacher council detail** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/conseilDeClasse.awp?verbe=get&v=4.96.3`
 - **Teacher council predefined appreciations** → `POST /v3/Prof%20Principal/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3` and `POST /v3/Enseignant/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3`
 - Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.

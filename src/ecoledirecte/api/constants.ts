@@ -178,14 +178,62 @@ export function teacherMessagesUrl(
   return messagesUrl(`enseignants/${teacherId}`, opts, TEACHER_API_BASE);
 }
 
+export function teacherMessageDetailUrl(
+  teacherId: number,
+  messageId: number,
+  opts: { mode?: "destinataire" | "expediteur"; version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const mode = opts.mode ?? "destinataire";
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/messages/${messageId}.awp?verbe=get&mode=${mode}&v=${v}`;
+}
+
 export function teacherEmploiDuTempsUrl(teacherId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/P/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
 }
 
+export function teacherCahierDeTextesUrl(
+  startDate: string,
+  endDate: string,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/cahierdetexte/loadslots/${encodeURIComponent(startDate)}/${encodeURIComponent(endDate)}.awp?verbe=get&v=${v}`;
+}
+
 export function teacherClassStudentsUrl(classId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/classes/${classId}/eleves.awp?verbe=get&v=${v}`;
+}
+
+export function teacherClassCarnetCorrespondanceUrl(
+  classId: number,
+  opts: { showAll?: boolean; version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const showAll = opts.showAll ? 1 : 0;
+  return `${TEACHER_API_BASE}/${API_VERSION}/classes/${classId}/carnetCorrespondance.awp?verbe=get&showAll=${showAll}&v=${v}`;
+}
+
+export function teacherStudentProfileUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}.awp?verbe=get&v=${v}`;
+}
+
+export function teacherStudentCarnetCorrespondanceUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}/eleveCarnetCorrespondance.awp?verbe=get&v=${v}`;
+}
+
+export function teacherStudentVieScolaireUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/eleves/${studentId}/viescolaire.awp?verbe=get&v=${v}`;
+}
+
+export function teacherStudentSessionsRdvUrl(studentId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/E/${studentId}/sessionsRdv.awp?verbe=get&v=${v}`;
 }
 
 export function teacherAttendanceRosterUrl(
@@ -278,4 +326,9 @@ export function teacherCouncilPredefinedAppreciationsUrl(
 ): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/${encodeURIComponent(scope)}/${teacherId}/${entityType}/${entityId}/appreciationsPredefinies.awp?verbe=get&v=${v}`;
+}
+
+export function teacherLslUrl(teacherId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/P/${teacherId}/LSL.awp?verbe=get&v=${v}`;
 }
