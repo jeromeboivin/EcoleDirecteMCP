@@ -12,6 +12,7 @@ import {
   studentNotesUrl,
   studentProfileUrl,
   studentSessionsRdvUrl,
+  teacherAttendanceRosterUrl,
   teacherGradebookAppreciationsUrl,
   teacherClassStudentsUrl,
   teacherGradebookNotesUrl,
@@ -76,11 +77,20 @@ import {
   type VieScolairePayload,
 } from "../api/vieScolaire.js";
 import {
+  normalizeTeacherAttendanceResponse,
+  type TeacherAttendancePayload,
+} from "../api/teacherAttendance.js";
+import {
   normalizeTeacherGradebookAppreciationsResponse,
   normalizeTeacherGradebookPredefinedAppreciationsResponse,
   type TeacherGradebookAppreciationsPayload,
   type TeacherGradebookPredefinedAppreciationsPayload,
 } from "../api/teacherGradebookAppreciations.js";
+import {
+  normalizeTeacherGradebookCatalogResponse,
+  type CatalogAttendanceSlot,
+  type TeacherGradebookCatalogPayload,
+} from "../api/teacherGradebookCatalog.js";
 import {
   normalizeTeacherClassStudentsResponse,
   type TeacherClassStudentsPayload,
@@ -93,10 +103,6 @@ import {
   normalizeTeacherNoteSettingsResponse,
   type TeacherNoteSettingsPayload,
 } from "../api/teacherNoteSettings.js";
-import {
-  normalizeTeacherGradebookCatalogResponse,
-  type TeacherGradebookCatalogPayload,
-} from "../api/teacherGradebookCatalog.js";
 import {
   normalizeTeacherGradebookNotesResponse,
   type TeacherGradebookNotesPayload,
@@ -227,6 +233,8 @@ export interface TeacherClassStudentsQuery extends TeacherQuery {
   classId: number;
 }
 
+export interface TeacherAttendanceTargetsQuery extends TeacherQuery {}
+
 export interface TeacherNoteSettingsQuery extends TeacherQuery {}
 
 export interface TeacherGradebookCatalogQuery extends TeacherQuery {}
@@ -247,6 +255,13 @@ export interface TeacherGradebookAppreciationsQuery extends TeacherQuery {
   periodCode: string;
   subjectCode: string;
   subSubjectCode?: string;
+}
+
+export interface TeacherAttendanceRosterQuery extends TeacherQuery {
+  entityId: number;
+  entityType?: TeacherGradebookEntityType;
+  startTime: string;
+  endTime: string;
 }
 
 export interface FamilyChoice {
@@ -296,6 +311,15 @@ export interface TeacherGradebookSubject {
   routeCode: string;
   label?: string;
   subSubjectCode?: string;
+}
+
+export interface TeacherAttendanceTarget {
+  id: number;
+  entityType: TeacherGradebookEntityType;
+  code?: string;
+  label?: string;
+  classId?: number;
+  subjectCode?: string;
 }
 
 export interface DataFailure {
@@ -452,6 +476,21 @@ export interface TeacherClassStudentsResult extends TeacherClassStudentsPayload 
   scope: "class";
   teacher: TeacherChoice;
   class: ClassChoice;
+}
+
+export interface TeacherAttendanceTargetsResult {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  classes: TeacherAttendanceTarget[];
+  groups: TeacherAttendanceTarget[];
+  suggestedSlots: CatalogAttendanceSlot[];
+}
+
+export interface TeacherAttendanceRosterResult extends TeacherAttendancePayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  target: TeacherAttendanceTarget;
+  selectedSlot: CatalogAttendanceSlot;
 }
 
 export interface TeacherRoomsResult extends TeacherRoomsPayload {
@@ -1321,6 +1360,69 @@ export class EdDataService {
     };
   }
 
+  async listTeacherAttendanceTargets(
+    query: TeacherAttendanceTargetsQuery = {},
+  ): Promise<DataResult<TeacherAttendanceTargetsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const response = await this.fetchData(
+      teacherGradebookCatalogUrl({ version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherGradebookCatalogResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected attendance target response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    const catalogClasses = normalized.data.establishments.flatMap((establishment) =>
+      establishment.classes.map((teacherClass) => ({
+        id: teacherClass.id,
+        entityType: "C" as const,
+        ...(teacherClass.code ? { code: teacherClass.code } : {}),
+        ...(teacherClass.label ? { label: teacherClass.label } : {}),
+      })),
+    );
+    const catalogGroups = normalized.data.establishments.flatMap((establishment) =>
+      establishment.groups.map((group) => ({
+        id: group.id,
+        entityType: "G" as const,
+        ...(group.code ? { code: group.code } : {}),
+        ...(group.label ? { label: group.label } : {}),
+      })),
+    );
+
+    const metadataClasses = (teacher.data.classes ?? []).map((teacherClass) => ({
+      id: teacherClass.id,
+      entityType: "C" as const,
+      ...(teacherClass.code ? { code: teacherClass.code } : {}),
+      ...(teacherClass.label ? { label: teacherClass.label } : {}),
+    }));
+    const metadataGroups = (teacher.data.groups ?? []).map((group) => ({
+      id: group.id,
+      entityType: "G" as const,
+      ...(group.code ? { code: group.code } : {}),
+      ...(group.label ? { label: group.label } : {}),
+      ...(group.classId !== undefined ? { classId: group.classId } : {}),
+      ...(group.subjectCode ? { subjectCode: group.subjectCode } : {}),
+    }));
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        classes: mergeTeacherAttendanceTargets(metadataClasses, catalogClasses),
+        groups: mergeTeacherAttendanceTargets(metadataGroups, catalogGroups),
+        suggestedSlots: normalized.data.attendanceGrid,
+      },
+    };
+  }
+
   async listTeacherRooms(
     query: TeacherQuery = {},
   ): Promise<DataResult<TeacherRoomsResult>> {
@@ -1518,6 +1620,53 @@ export class EdDataService {
         selectedPeriodCode: query.periodCode,
         ...normalizedAppreciations.data,
         ...normalizedPredefined.data,
+      },
+    };
+  }
+
+  async getTeacherAttendanceRoster(
+    query: TeacherAttendanceRosterQuery,
+  ): Promise<DataResult<TeacherAttendanceRosterResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const entityType = query.entityType ?? "C";
+    const startTime = normalizeAttendanceTime(query.startTime);
+    const endTime = normalizeAttendanceTime(query.endTime);
+    if (!startTime) {
+      return this.failure("startTime must use HH:MM format.", true);
+    }
+    if (!endTime) {
+      return this.failure("endTime must use HH:MM format.", true);
+    }
+
+    const response = await this.fetchData(
+      teacherAttendanceRosterUrl(entityType, query.entityId, { version: this.http.version }),
+      { heureDebut: startTime, heureFin: endTime },
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherAttendanceResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected attendance roster response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        target: summarizeTeacherAttendanceTarget(
+          teacher.data,
+          query.entityId,
+          entityType,
+          normalized.data.entity,
+        ),
+        selectedSlot: { start: startTime, end: endTime },
+        ...normalized.data,
       },
     };
   }
@@ -1994,18 +2143,19 @@ function summarizeTeacher(account: AccountInfo): TeacherChoice {
   };
 }
 
-function summarizeTeacherGradebookTarget(
+function summarizeTeacherAttendanceTarget(
   account: AccountInfo,
   entityId: number,
   entityType: TeacherGradebookEntityType,
-): TeacherGradebookTarget {
+  fallback?: { code?: string; label?: string },
+): TeacherAttendanceTarget {
   if (entityType === "G") {
     const group = account.groups?.find((candidate) => candidate.id === entityId);
     return {
       id: entityId,
       entityType,
-      ...(group?.code ? { code: group.code } : {}),
-      ...(group?.label ? { label: group.label } : {}),
+      ...(group?.code ? { code: group.code } : fallback?.code ? { code: fallback.code } : {}),
+      ...(group?.label ? { label: group.label } : fallback?.label ? { label: fallback.label } : {}),
       ...(group?.classId !== undefined ? { classId: group.classId } : {}),
       ...(group?.subjectCode ? { subjectCode: group.subjectCode } : {}),
     };
@@ -2015,9 +2165,17 @@ function summarizeTeacherGradebookTarget(
   return {
     id: entityId,
     entityType,
-    ...(teacherClass?.code ? { code: teacherClass.code } : {}),
-    ...(teacherClass?.label ? { label: teacherClass.label } : {}),
+    ...(teacherClass?.code ? { code: teacherClass.code } : fallback?.code ? { code: fallback.code } : {}),
+    ...(teacherClass?.label ? { label: teacherClass.label } : fallback?.label ? { label: fallback.label } : {}),
   };
+}
+
+function summarizeTeacherGradebookTarget(
+  account: AccountInfo,
+  entityId: number,
+  entityType: TeacherGradebookEntityType,
+): TeacherGradebookTarget {
+  return summarizeTeacherAttendanceTarget(account, entityId, entityType);
 }
 
 function summarizeTeacherGradebookSubject(
@@ -2036,4 +2194,36 @@ function summarizeTeacherGradebookSubject(
     ...(subject?.label ? { label: subject.label } : {}),
     ...(trimmedSubSubject ? { subSubjectCode: trimmedSubSubject } : {}),
   };
+}
+
+function mergeTeacherAttendanceTargets(
+  primary: TeacherAttendanceTarget[],
+  secondary: TeacherAttendanceTarget[],
+): TeacherAttendanceTarget[] {
+  const merged = new Map<number, TeacherAttendanceTarget>();
+
+  for (const candidate of [...primary, ...secondary]) {
+    const previous = merged.get(candidate.id);
+    merged.set(candidate.id, {
+      ...(previous ?? {}),
+      ...candidate,
+      id: candidate.id,
+      entityType: candidate.entityType,
+      ...(previous?.code && !candidate.code ? { code: previous.code } : {}),
+      ...(previous?.label && !candidate.label ? { label: previous.label } : {}),
+      ...(previous?.classId !== undefined && candidate.classId === undefined ? { classId: previous.classId } : {}),
+      ...(previous?.subjectCode && !candidate.subjectCode ? { subjectCode: previous.subjectCode } : {}),
+    });
+  }
+
+  return [...merged.values()].sort((left, right) => {
+    const leftLabel = left.label ?? left.code ?? `${left.id}`;
+    const rightLabel = right.label ?? right.code ?? `${right.id}`;
+    return leftLabel.localeCompare(rightLabel, "fr", { sensitivity: "base" });
+  });
+}
+
+function normalizeAttendanceTime(value: string): string | undefined {
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : undefined;
 }

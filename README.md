@@ -30,6 +30,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Teacher emploi du temps** — returns teacher timetable events for a date range through the authenticated `P/{id}/emploidutemps.awp` route.
 - **Teacher classes** — lists classes assigned to the teacher from account metadata.
 - **Teacher class students** — returns the roster of students in a specific class through the authenticated `classes/{classId}/eleves.awp` route.
+- **Teacher attendance targets** — lists teacher attendance classes, groups, and suggested time slots by combining account metadata with the attendance grid exposed by `niveauxListe.awp`.
+- **Teacher attendance roster** — returns the attendance roster for a selected class or group and time window through the authenticated `classes/{entityId}/eleves.awp` or `groupes/{entityId}/eleves.awp` route, including per-student stage, dispense, prior-absence, and device flags.
 - **Teacher rooms** — lists available rooms through the authenticated `salles.awp` route.
 - **Teacher note settings** — returns grading configuration through the authenticated `enseignants/{id}/parametrages.awp` route.
 - **Teacher gradebook catalog** — returns the full gradebook navigation model (establishments, classes, groups, periods, subjects, council dates, attendance grid) through the authenticated `niveauxListe.awp` route.
@@ -164,6 +166,8 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `get_teacher_emploi_du_temps` | Get teacher timetable for a date range (`dateDebut`, `dateFin`) |
 | `list_teacher_classes` | List classes assigned to the teacher (from account metadata) |
 | `get_teacher_class_students` | Get the student roster for a class (`classId`) |
+| `list_teacher_attendance_targets` | List teacher attendance classes, groups, and suggested time slots |
+| `get_teacher_attendance_roster` | Get the attendance roster for a selected class or group and time window (`entityId`, `entityType`, `startTime`, `endTime`) |
 | `list_teacher_rooms` | List available rooms for the teacher's establishment |
 | `get_teacher_note_settings` | Get grading configuration (components, homework types, establishment parameters) |
 | `get_teacher_gradebook_catalog` | Get the full gradebook navigation catalog (establishments, classes, groups, periods, subjects, council dates, attendance grid) |
@@ -265,6 +269,8 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Teacher messages** → `POST /v3/enseignants/{teacherId}/messages.awp?force=false&typeRecuperation=received&...&verbe=get&v=4.96.3`
 - **Teacher emploi du temps** → `POST /v3/P/{teacherId}/emploidutemps.awp?verbe=get&v=4.96.3` with `data={"dateDebut":"YYYY-MM-DD","dateFin":"YYYY-MM-DD","avecTpiTemp":false}`
 - **Teacher class students** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3`
+- **Teacher attendance targets** → `POST /v3/niveauxListe.awp?verbe=get&v=4.96.3` with the attendance grid read from `data[].parametres.grille`
+- **Teacher attendance roster** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3` or `POST /v3/groupes/{groupId}/eleves.awp?verbe=get&v=4.96.3` with `data={"heureDebut":"HH:MM","heureFin":"HH:MM"}`
 - **Teacher rooms** → `POST /v3/salles.awp?verbe=get&v=4.96.3`
 - **Teacher note settings** → `POST /v3/enseignants/{teacherId}/parametrages.awp?verbe=get&v=4.96.3`
 - **Teacher gradebook notes** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp?verbe=get&v=4.96.3`
@@ -312,6 +318,7 @@ src/
     │   ├── emploiDuTemps.ts          # Timetable response normalization
     │   ├── familyDocuments.ts        # Family documents response normalization
     │   ├── familyInvoices.ts         # Family invoices response normalization
+    │   ├── teacherAttendance.ts      # Teacher attendance roster normalization
     │   ├── teacherClassStudents.ts   # Teacher class roster normalization
     │   ├── teacherGradebookAppreciations.ts # Teacher appreciation normalization
     │   ├── teacherGradebookNotes.ts  # Teacher grade-grid normalization

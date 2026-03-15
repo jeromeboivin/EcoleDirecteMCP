@@ -20,6 +20,8 @@ import type {
   StudentProfileResult,
   StudentSessionsRdvResult,
   StudentVieScolaireResult,
+  TeacherAttendanceRosterResult,
+  TeacherAttendanceTargetsResult,
   TeacherClassStudentsResult,
   TeacherEmploiDuTempsResult,
   TeacherGradebookAppreciationsResult,
@@ -110,6 +112,14 @@ const teacherEmploiDuTempsQuerySchema = {
 const teacherClassStudentsQuerySchema = {
   ...teacherQuerySchema,
   classId: z.number().int().positive(),
+};
+
+const teacherAttendanceRosterQuerySchema = {
+  ...teacherQuerySchema,
+  entityId: z.number().int().positive(),
+  entityType: z.enum(["C", "G"]).optional(),
+  startTime: z.string().regex(/^\d{2}:\d{2}$/),
+  endTime: z.string().regex(/^\d{2}:\d{2}$/),
 };
 
 const teacherGradebookDetailQuerySchema = {
@@ -443,6 +453,28 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 
   server.tool(
+    "list_teacher_attendance_targets",
+    "List teacher attendance classes, groups, and suggested time slots. Uses account metadata plus the attendance grid exposed by niveauxListe.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_attendance_targets tool invoked");
+      const result = await data.listTeacherAttendanceTargets(args);
+      return resultForTeacherAttendanceTargets(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_attendance_roster",
+    "Get the teacher attendance roster for a selected class or group and time window. Use list_teacher_attendance_targets first to find entityId, entityType, and suggested slots.",
+    teacherAttendanceRosterQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_attendance_roster tool invoked");
+      const result = await data.getTeacherAttendanceRoster(args);
+      return resultForTeacherAttendanceRoster(result);
+    }),
+  );
+
+  server.tool(
     "list_teacher_rooms",
     "List available rooms for the teacher's establishment.",
     teacherQuerySchema,
@@ -654,6 +686,29 @@ function resultForTeacherClassStudents(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherAttendanceTargets(
+  result: Awaited<ReturnType<EdDataService["listTeacherAttendanceTargets"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `Attendance targets for ${result.data.teacher.name}: ${result.data.classes.length} class(es), ${result.data.groups.length} group(s), ${result.data.suggestedSlots.length} suggested slot(s).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherAttendanceRoster(
+  result: Awaited<ReturnType<EdDataService["getTeacherAttendanceRoster"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const targetLabel = result.data.target.label ?? result.data.target.code ?? `${result.data.target.entityType} ${result.data.target.id}`;
+  const stageCount = result.data.students.filter((student) => student.inStage).length;
+  const dispensedCount = result.data.students.filter((student) => student.dispensed).length;
+  const absentBeforeCount = result.data.students.filter((student) => student.absentBefore).length;
+  const attendanceStatus = result.data.attendanceCall.completed
+    ? `already recorded${result.data.attendanceCall.recordedAt ? ` at ${result.data.attendanceCall.recordedAt}` : ""}`
+    : "not yet recorded";
+  const summary = `Attendance roster for ${result.data.teacher.name}: ${result.data.studentCount} student(s) for ${targetLabel} at ${result.data.selectedSlot.start}-${result.data.selectedSlot.end}; ${attendanceStatus}, ${absentBeforeCount} previously absent, ${dispensedCount} dispensed, ${stageCount} in stage.`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherRooms(
   result: Awaited<ReturnType<EdDataService["listTeacherRooms"]>>,
 ) {
@@ -732,6 +787,8 @@ function successResult(
     | StudentProfileResult
     | StudentSessionsRdvResult
     | StudentVieScolaireResult
+    | TeacherAttendanceRosterResult
+    | TeacherAttendanceTargetsResult
     | TeacherClassStudentsResult
     | TeacherEmploiDuTempsResult
     | TeacherGradebookAppreciationsResult

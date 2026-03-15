@@ -987,6 +987,162 @@ const teacherAuthState: AuthState = {
 };
 
 describe("teacher gradebook catalog", () => {
+  it("lists teacher attendance targets with suggested slots", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: [
+        {
+          id: 6,
+          code: "LP",
+          nom: "Lycée Pro",
+          parametres: {
+            grille: [
+              { heureDbt: "08:00", heureFin: "08:55" },
+              { heureDbt: "09:00", heureFin: "09:55" },
+            ],
+          },
+          niveaux: [
+            {
+              classes: [{
+                idGroupe: 85,
+                code: "3PA",
+                libelle: "3ème Prépa Apprenti",
+                typeEntity: "C",
+                tabPP: [{ idPP: 221 }],
+                periodes: [],
+              }],
+              groupes: [{
+                idGroupe: 1505,
+                code: "VICLA_TG6",
+                libelle: "Vie de classe TG6",
+                typeEntity: "G",
+                periodes: [],
+              }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.listTeacherAttendanceTargets();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.classes).toEqual([
+        { id: 85, entityType: "C", code: "3PA", label: "3ème Prépa Apprenti" },
+      ]);
+      expect(result.data.groups).toEqual([
+        {
+          id: 1505,
+          entityType: "G",
+          code: "VICLA_TG6",
+          label: "Vie de classe TG6",
+          classId: 85,
+          subjectCode: "VICLA",
+        },
+      ]);
+      expect(result.data.suggestedSlots).toEqual([
+        { start: "08:00", end: "08:55" },
+        { start: "09:00", end: "09:55" },
+      ]);
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/niveauxListe.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("fetches a teacher attendance roster for a group and time window", async () => {
+    const attendanceBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        eleves: [
+          {
+            id: 4017,
+            prenom: "Loélie",
+            nom: "AZEVEDO",
+            sexe: "F",
+            classeId: 74,
+            groupeId: 1505,
+            classeLibelle: "Terminale C",
+            dateEntree: "2019-09-02",
+            dateSortie: "",
+            numeroBadge: "50170",
+            regime: "Externe",
+            email: "loelie47@gmail.com",
+            portable: "",
+            photo: "//photo.jpg",
+            dateNaissance: "2008-12-15",
+            estEnStage: true,
+            estApprenant: false,
+            dispense: false,
+            finDispense: "",
+            presenceObligatoire: true,
+            absentAvant: false,
+            dispositifs: [],
+          },
+        ],
+        entity: {
+          id: 1505,
+          code: "VICLA_TG6",
+          libelle: "VICLA_TG6",
+          type: "G",
+          isFlexible: false,
+          isPrimaire: false,
+        },
+        appelEnClasse: {
+          effectue: false,
+          dateHeure: "",
+        },
+      },
+    };
+
+    const http = makeHttp([attendanceBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherAttendanceRoster({
+      entityId: 1505,
+      entityType: "G",
+      startTime: "13:25",
+      endTime: "14:20",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.target).toEqual({
+        id: 1505,
+        entityType: "G",
+        code: "VICLA_TG6",
+        label: "Vie de classe TG6",
+        classId: 85,
+        subjectCode: "VICLA",
+      });
+      expect(result.data.selectedSlot).toEqual({ start: "13:25", end: "14:20" });
+      expect(result.data.studentCount).toBe(1);
+      expect(result.data.attendanceCall.completed).toBe(false);
+      expect(result.data.students[0]?.inStage).toBe(true);
+      expect(result.data.students[0]?.className).toBe("Terminale C");
+    }
+
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/groupes/1505/eleves.awp"),
+      { heureDebut: "13:25", heureFin: "14:20" },
+      { includeGtk: false },
+    );
+  });
+
   it("fetches and normalizes the gradebook catalog", async () => {
     const catalogBody: RawApiResponse = {
       code: ApiCode.OK,

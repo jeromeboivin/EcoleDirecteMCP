@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normalize.js";
+import { normalizeTeacherAttendanceResponse } from "../../src/ecoledirecte/api/teacherAttendance.js";
 import { normalizeTeacherClassStudentsResponse } from "../../src/ecoledirecte/api/teacherClassStudents.js";
 import { normalizeTeacherRoomsResponse } from "../../src/ecoledirecte/api/teacherRooms.js";
 import { normalizeTeacherNoteSettingsResponse } from "../../src/ecoledirecte/api/teacherNoteSettings.js";
@@ -11,6 +12,107 @@ import {
 import { normalizeTeacherGradebookNotesResponse } from "../../src/ecoledirecte/api/teacherGradebookNotes.js";
 
 describe("teacher data normalizers", () => {
+  describe("normalizeTeacherAttendanceResponse", () => {
+    it("normalizes a teacher attendance roster payload", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          eleves: [
+            {
+              id: 6099,
+              prenom: "Irem",
+              nom: "AKYOL",
+              sexe: "F",
+              classeId: 85,
+              groupeId: 0,
+              classeLibelle: "Premiere C",
+              dateEntree: "2024-10-03",
+              dateSortie: "",
+              numeroBadge: "70990",
+              regime: "Externe",
+              email: "",
+              portable: "0612345678",
+              photo: "//photo.jpg",
+              dateNaissance: "2009-09-30",
+              estEnStage: false,
+              estApprenant: false,
+              dispense: true,
+              finDispense: "2026-03-20",
+              presenceObligatoire: true,
+              absentAvant: true,
+              dispositifs: [{ code: "ULIS", libelle: "ULIS" }],
+            },
+          ],
+          entity: {
+            id: 85,
+            code: "1C",
+            libelle: "Premiere C",
+            type: "C",
+            isFlexible: false,
+            isPrimaire: false,
+          },
+          appelEnClasse: {
+            effectue: true,
+            dateHeure: "2026-03-15 13:28:01",
+          },
+        },
+      };
+
+      const result = normalizeTeacherAttendanceResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.studentCount).toBe(1);
+      expect(result.data?.attendanceCall).toEqual({
+        completed: true,
+        recordedAt: "2026-03-15 13:28:01",
+      });
+      expect(result.data?.entity).toEqual({
+        id: 85,
+        type: "C",
+        code: "1C",
+        label: "Premiere C",
+        isFlexible: false,
+        isPrimary: false,
+      });
+      expect(result.data?.students[0]).toMatchObject({
+        id: 6099,
+        name: "Irem AKYOL",
+        firstName: "Irem",
+        lastName: "AKYOL",
+        classId: 85,
+        groupId: 0,
+        className: "Premiere C",
+        badgeNumber: "70990",
+        boarderStatus: "Externe",
+        mobile: "0612345678",
+        birthDate: "2009-09-30",
+        inStage: false,
+        apprentice: false,
+        dispensed: true,
+        dispensationEnd: "2026-03-20",
+        presenceRequired: true,
+        absentBefore: true,
+        devices: [{ code: "ULIS", label: "ULIS" }],
+      });
+    });
+
+    it("returns failure for non-OK code", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.EXPIRED_KEY,
+        token: "",
+        message: "Session expired",
+        data: {},
+      };
+
+      const result = normalizeTeacherAttendanceResponse(raw);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe("Session expired");
+    });
+  });
+
   describe("normalizeTeacherClassStudentsResponse", () => {
     it("normalizes a class roster array", () => {
       const raw: RawApiResponse = {

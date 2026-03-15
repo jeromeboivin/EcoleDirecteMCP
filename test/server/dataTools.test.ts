@@ -287,6 +287,29 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         students: [{ id: 101, name: "Alice DUPONT" }],
       },
     }),
+    listTeacherAttendanceTargets: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        classes: [{ id: 85, entityType: "C", code: "3PA", label: "3ème Prépa Apprenti" }],
+        groups: [{ id: 1505, entityType: "G", code: "VICLA_TG6", label: "Vie de classe TG6", classId: 85, subjectCode: "VICLA" }],
+        suggestedSlots: [{ start: "13:25", end: "14:20" }],
+      },
+    }),
+    getTeacherAttendanceRoster: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        target: { id: 1505, entityType: "G", code: "VICLA_TG6", label: "Vie de classe TG6", classId: 85, subjectCode: "VICLA" },
+        selectedSlot: { start: "13:25", end: "14:20" },
+        attendanceCall: { completed: false },
+        entity: { id: 1505, type: "G", code: "VICLA_TG6", label: "VICLA_TG6" },
+        students: [{ id: 101, name: "Alice DUPONT", inStage: false, apprentice: false, dispensed: false, presenceRequired: true, absentBefore: false, devices: [] }],
+        studentCount: 1,
+      },
+    }),
     listTeacherRooms: vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -638,6 +661,8 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("get_teacher_emploi_du_temps")).toBe(true);
     expect(server.handlers.has("list_teacher_classes")).toBe(true);
     expect(server.handlers.has("get_teacher_class_students")).toBe(true);
+    expect(server.handlers.has("list_teacher_attendance_targets")).toBe(true);
+    expect(server.handlers.has("get_teacher_attendance_roster")).toBe(true);
     expect(server.handlers.has("list_teacher_rooms")).toBe(true);
     expect(server.handlers.has("get_teacher_note_settings")).toBe(true);
     expect(server.handlers.has("get_teacher_gradebook_catalog")).toBe(true);
@@ -670,6 +695,43 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("1 class(es)");
     expect(result.content[0].text).toContain("Mme D. PROF");
     expect(data.listTeacherClasses).toHaveBeenCalled();
+  });
+
+  it("registers list_teacher_attendance_targets and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("list_teacher_attendance_targets")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Attendance targets for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 class(es), 1 group(s), 1 suggested slot(s)");
+    expect(data.listTeacherAttendanceTargets).toHaveBeenCalled();
+  });
+
+  it("registers get_teacher_attendance_roster and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_attendance_roster")!({
+      entityId: 1505,
+      entityType: "G",
+      startTime: "13:25",
+      endTime: "14:20",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Attendance roster for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 student(s) for Vie de classe TG6 at 13:25-14:20");
+    expect(result.content[0].text).toContain("not yet recorded");
+    expect(data.getTeacherAttendanceRoster).toHaveBeenCalledWith({
+      entityId: 1505,
+      entityType: "G",
+      startTime: "13:25",
+      endTime: "14:20",
+    });
   });
 
   it("registers get_teacher_note_settings and formats the summary", async () => {

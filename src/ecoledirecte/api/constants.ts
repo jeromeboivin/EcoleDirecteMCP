@@ -188,6 +188,16 @@ export function teacherClassStudentsUrl(classId: number, opts: { version?: strin
   return `${TEACHER_API_BASE}/${API_VERSION}/classes/${classId}/eleves.awp?verbe=get&v=${v}`;
 }
 
+export function teacherAttendanceRosterUrl(
+  entityType: "C" | "G",
+  entityId: number,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const scope = entityType === "G" ? "groupes" : "classes";
+  return `${TEACHER_API_BASE}/${API_VERSION}/${scope}/${entityId}/eleves.awp?verbe=get&v=${v}`;
+}
+
 export function teacherRoomsUrl(opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${v}`;

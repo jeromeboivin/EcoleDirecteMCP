@@ -16,6 +16,7 @@ import {
   studentNotesUrl,
   studentProfileUrl,
   studentSessionsRdvUrl,
+  teacherAttendanceRosterUrl,
   studentVieScolaireUrl,
   teacherClassStudentsUrl,
   teacherEmploiDuTempsUrl,
@@ -236,6 +237,22 @@ describe("teacherClassStudentsUrl", () => {
     const url = teacherClassStudentsUrl(42);
     expect(url).toBe(
       `${TEACHER_API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherAttendanceRosterUrl", () => {
+  it("returns the class attendance roster endpoint on TEACHER_API_BASE", () => {
+    const url = teacherAttendanceRosterUrl("C", 42);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+
+  it("returns the group attendance roster endpoint on TEACHER_API_BASE", () => {
+    const url = teacherAttendanceRosterUrl("G", 1505);
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/groupes/1505/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
