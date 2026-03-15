@@ -12,9 +12,13 @@ import {
   studentNotesUrl,
   studentProfileUrl,
   studentSessionsRdvUrl,
+  teacherGradebookAppreciationsUrl,
   teacherClassStudentsUrl,
+  teacherGradebookNotesUrl,
   teacherEmploiDuTempsUrl,
   teacherGradebookCatalogUrl,
+  teacherGradebookPredefinedAppreciationsUrl,
+  teacherGradebookSubjectRouteCode,
   teacherMessagesUrl,
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
@@ -72,6 +76,12 @@ import {
   type VieScolairePayload,
 } from "../api/vieScolaire.js";
 import {
+  normalizeTeacherGradebookAppreciationsResponse,
+  normalizeTeacherGradebookPredefinedAppreciationsResponse,
+  type TeacherGradebookAppreciationsPayload,
+  type TeacherGradebookPredefinedAppreciationsPayload,
+} from "../api/teacherGradebookAppreciations.js";
+import {
   normalizeTeacherClassStudentsResponse,
   type TeacherClassStudentsPayload,
 } from "../api/teacherClassStudents.js";
@@ -87,6 +97,10 @@ import {
   normalizeTeacherGradebookCatalogResponse,
   type TeacherGradebookCatalogPayload,
 } from "../api/teacherGradebookCatalog.js";
+import {
+  normalizeTeacherGradebookNotesResponse,
+  type TeacherGradebookNotesPayload,
+} from "../api/teacherGradebookNotes.js";
 import { ApiCode, type RawApiResponse } from "../api/normalize.js";
 import type { AuthService } from "../auth/service.js";
 import type { AccountInfo, AuthState, StudentInfo } from "../auth/types.js";
@@ -217,6 +231,24 @@ export interface TeacherNoteSettingsQuery extends TeacherQuery {}
 
 export interface TeacherGradebookCatalogQuery extends TeacherQuery {}
 
+export type TeacherGradebookEntityType = "C" | "G";
+
+export interface TeacherGradebookNotesQuery extends TeacherQuery {
+  entityId: number;
+  entityType?: TeacherGradebookEntityType;
+  periodCode: string;
+  subjectCode: string;
+  subSubjectCode?: string;
+}
+
+export interface TeacherGradebookAppreciationsQuery extends TeacherQuery {
+  entityId: number;
+  entityType?: TeacherGradebookEntityType;
+  periodCode: string;
+  subjectCode: string;
+  subSubjectCode?: string;
+}
+
 export interface FamilyChoice {
   id: number;
   name: string;
@@ -248,6 +280,22 @@ export interface TeacherChoice {
   establishment?: string;
   main?: boolean;
   current?: boolean;
+}
+
+export interface TeacherGradebookTarget {
+  id: number;
+  entityType: TeacherGradebookEntityType;
+  code?: string;
+  label?: string;
+  classId?: number;
+  subjectCode?: string;
+}
+
+export interface TeacherGradebookSubject {
+  code: string;
+  routeCode: string;
+  label?: string;
+  subSubjectCode?: string;
 }
 
 export interface DataFailure {
@@ -419,6 +467,22 @@ export interface TeacherNoteSettingsResult extends TeacherNoteSettingsPayload {
 export interface TeacherGradebookCatalogResult extends TeacherGradebookCatalogPayload {
   scope: "teacher";
   teacher: TeacherChoice;
+}
+
+export interface TeacherGradebookNotesResult extends TeacherGradebookNotesPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  target: TeacherGradebookTarget;
+  subject: TeacherGradebookSubject;
+  selectedPeriodCode: string;
+}
+
+export interface TeacherGradebookAppreciationsResult extends TeacherGradebookAppreciationsPayload, TeacherGradebookPredefinedAppreciationsPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  target: TeacherGradebookTarget;
+  subject: TeacherGradebookSubject;
+  selectedPeriodCode: string;
 }
 
 export type DataResult<T> = { ok: true; data: T } | DataFailure;
@@ -1360,6 +1424,104 @@ export class EdDataService {
     };
   }
 
+  async getTeacherGradebookNotes(
+    query: TeacherGradebookNotesQuery,
+  ): Promise<DataResult<TeacherGradebookNotesResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const entityType = query.entityType ?? "C";
+    const response = await this.fetchData(
+      teacherGradebookNotesUrl(
+        teacher.data.id,
+        entityType,
+        query.entityId,
+        query.periodCode,
+        query.subjectCode,
+        { subSubjectCode: query.subSubjectCode, version: this.http.version },
+      ),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherGradebookNotesResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected gradebook notes response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        target: summarizeTeacherGradebookTarget(teacher.data, query.entityId, entityType),
+        subject: summarizeTeacherGradebookSubject(teacher.data, query.subjectCode, query.subSubjectCode),
+        selectedPeriodCode: query.periodCode,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getTeacherGradebookAppreciations(
+    query: TeacherGradebookAppreciationsQuery,
+  ): Promise<DataResult<TeacherGradebookAppreciationsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const entityType = query.entityType ?? "C";
+    const appreciationResponse = await this.fetchData(
+      teacherGradebookAppreciationsUrl(
+        teacher.data.id,
+        entityType,
+        query.entityId,
+        query.subjectCode,
+        { subSubjectCode: query.subSubjectCode, version: this.http.version },
+      ),
+    );
+    if (!appreciationResponse.ok) return appreciationResponse;
+
+    const predefinedResponse = await this.fetchData(
+      teacherGradebookPredefinedAppreciationsUrl(
+        teacher.data.id,
+        entityType,
+        query.entityId,
+        { version: this.http.version },
+      ),
+    );
+    if (!predefinedResponse.ok) return predefinedResponse;
+
+    const normalizedAppreciations = normalizeTeacherGradebookAppreciationsResponse(appreciationResponse.data);
+    if (!normalizedAppreciations.ok || !normalizedAppreciations.data) {
+      return this.failure(
+        normalizedAppreciations.message ?? `Unexpected gradebook appreciations response code ${normalizedAppreciations.code}`,
+        true,
+      );
+    }
+
+    const normalizedPredefined = normalizeTeacherGradebookPredefinedAppreciationsResponse(predefinedResponse.data);
+    if (!normalizedPredefined.ok || !normalizedPredefined.data) {
+      return this.failure(
+        normalizedPredefined.message ?? `Unexpected predefined appreciations response code ${normalizedPredefined.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        target: summarizeTeacherGradebookTarget(teacher.data, query.entityId, entityType),
+        subject: summarizeTeacherGradebookSubject(teacher.data, query.subjectCode, query.subSubjectCode),
+        selectedPeriodCode: query.periodCode,
+        ...normalizedAppreciations.data,
+        ...normalizedPredefined.data,
+      },
+    };
+  }
+
   async listAllStudents(): Promise<DataResult<StudentChoice[]>> {
     const authState = await this.ensureReadyAuth();
     if (!authState.ok) return authState;
@@ -1829,5 +1991,49 @@ function summarizeTeacher(account: AccountInfo): TeacherChoice {
     ...(account.establishment ? { establishment: account.establishment } : {}),
     ...(account.main !== undefined ? { main: account.main } : {}),
     ...(account.current !== undefined ? { current: account.current } : {}),
+  };
+}
+
+function summarizeTeacherGradebookTarget(
+  account: AccountInfo,
+  entityId: number,
+  entityType: TeacherGradebookEntityType,
+): TeacherGradebookTarget {
+  if (entityType === "G") {
+    const group = account.groups?.find((candidate) => candidate.id === entityId);
+    return {
+      id: entityId,
+      entityType,
+      ...(group?.code ? { code: group.code } : {}),
+      ...(group?.label ? { label: group.label } : {}),
+      ...(group?.classId !== undefined ? { classId: group.classId } : {}),
+      ...(group?.subjectCode ? { subjectCode: group.subjectCode } : {}),
+    };
+  }
+
+  const teacherClass = account.classes?.find((candidate) => candidate.id === entityId);
+  return {
+    id: entityId,
+    entityType,
+    ...(teacherClass?.code ? { code: teacherClass.code } : {}),
+    ...(teacherClass?.label ? { label: teacherClass.label } : {}),
+  };
+}
+
+function summarizeTeacherGradebookSubject(
+  account: AccountInfo,
+  subjectCode: string,
+  subSubjectCode?: string,
+): TeacherGradebookSubject {
+  const rawCode = subjectCode.trim();
+  const baseCode = rawCode.includes("¤") ? rawCode.split("¤", 1)[0] : rawCode;
+  const trimmedSubSubject = subSubjectCode?.trim();
+  const subject = account.subjects?.find((candidate) => candidate.code === baseCode);
+
+  return {
+    code: baseCode,
+    routeCode: teacherGradebookSubjectRouteCode(rawCode, trimmedSubSubject),
+    ...(subject?.label ? { label: subject.label } : {}),
+    ...(trimmedSubSubject ? { subSubjectCode: trimmedSubSubject } : {}),
   };
 }

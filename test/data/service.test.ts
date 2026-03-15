@@ -975,6 +975,13 @@ const teacherAuthState: AuthState = {
       classes: [
         { id: 85, code: "3PA", label: "3ème Prépa Apprenti" },
       ],
+      groups: [
+        { id: 1505, code: "VICLA_TG6", label: "Vie de classe TG6", classId: 85, subjectCode: "VICLA" },
+      ],
+      subjects: [
+        { code: "FRANC", label: "FRANCAIS" },
+        { code: "VICLA", label: "VIE DE CLASSE" },
+      ],
     },
   ],
 };
@@ -1052,5 +1059,194 @@ describe("teacher gradebook catalog", () => {
     if (!result.ok) {
       expect(result.error).toContain("teacher");
     }
+  });
+
+  it("fetches and normalizes a populated gradebook notes grid", async () => {
+    const notesBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        devoirs: [
+          {
+            id: 18877181,
+            idProf: 221,
+            nomProf: "Mme D. PROF",
+            libelle: "Ecrit",
+            coef: 3,
+            date: "2025-12-10",
+            dateAffichage: "2026-01-14",
+            nonSignificatif: false,
+            ccf: false,
+            noteSur: 20,
+            notationLettre: false,
+            noteNegative: false,
+            statutPeriode: "cloture",
+            idPeriode: "A002X001",
+            codeMatiere: "FRANC",
+            codeSSMatiere: "",
+            avecNote: true,
+            commentaire: "",
+            elementsProgramme: [],
+            typeDevoir: { id: 8, code: "BB", libelle: "Bac blanc" },
+          },
+        ],
+        eleves: [
+          {
+            eleve: {
+              id: 6099,
+              prenom: "Irem",
+              nom: "AKYOL",
+              classeLibelle: "Premiere C",
+              codeClasse: "1C",
+              sexe: "F",
+              photo: "//photo.jpg",
+              ordreArrivee: "A",
+              dispositifs: [],
+            },
+            devoirs: {
+              "18877181": {
+                idNote: 46193197,
+                idDevoir: 18877181,
+                idPeriode: "A002X001",
+                coef: 3,
+                note: "8",
+                noteSur: 20,
+                lettre: "",
+                notationLettre: false,
+                date: "2025-12-10",
+                devoirLibelle: "Ecrit",
+                ccf: false,
+                nonSignificatif: false,
+                codeMatiere: "FRANC",
+                codeSSMatiere: "",
+                commentaire: "",
+                elementsProgramme: [],
+              },
+            },
+          },
+        ],
+      },
+    };
+
+    const http = makeHttp([notesBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookNotes({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.target).toEqual({ id: 85, entityType: "C", code: "3PA", label: "3ème Prépa Apprenti" });
+      expect(result.data.subject).toEqual({ code: "FRANC", routeCode: "FRANC¤", label: "FRANCAIS" });
+      expect(result.data.selectedPeriodCode).toBe("A002");
+      expect(result.data.evaluationCount).toBe(1);
+      expect(result.data.studentCount).toBe(1);
+      expect(result.data.evaluations[0]?.homeworkType?.code).toBe("BB");
+      expect(result.data.students[0]?.grades["18877181"]?.grade).toBe("8");
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/enseignants/221/C/85/periodes/A002/matieres/FRANC%C2%A4/notes.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("fetches appreciation data and predefined appreciation templates", async () => {
+    const appreciationsBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        eleves: [
+          {
+            eleve: {
+              id: 6099,
+              prenom: "Irem",
+              nom: "AKYOL",
+              codeClasse: "1C",
+              sexe: "F",
+              photo: "//photo.jpg",
+              ordreArrivee: "A",
+              dispositifs: [],
+            },
+            periodes: [
+              {
+                code: "A002",
+                libelle: "Trimestre 2",
+                libelleCourt: "T2",
+                moyenne: "11,05",
+                position: "",
+                dateDebut: "20251124",
+                dateFin: "20260205",
+                ouverte: false,
+                dateCalculMoyenne: "12/03/2026 à 08h01",
+                appreciations: [{ code: "APP1", libelle: "", contenu: "QnJhdm8gLSBjb250aW51ZSE=" }],
+                positionSSMat: [],
+                elementsProgramme: [],
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const predefinedBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: {
+        appreciations: [
+          {
+            id: 2,
+            code: "TB",
+            libelle: "Qydlc3QgdHLDqHMgYmllbiw=",
+            type: "Enseignant",
+            idAuteur: 221,
+          },
+        ],
+        parametrage: { nbCaractMax: 200 },
+      },
+    };
+
+    const http = makeHttp([appreciationsBody, predefinedBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookAppreciations({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.target.label).toBe("3ème Prépa Apprenti");
+      expect(result.data.subject.routeCode).toBe("FRANC¤");
+      expect(result.data.selectedPeriodCode).toBe("A002");
+      expect(result.data.studentCount).toBe(1);
+      expect(result.data.students[0]?.periods[0]?.appreciations[0]?.content).toBe("Bravo - continue!");
+      expect(result.data.predefinedAppreciations).toHaveLength(1);
+      expect(result.data.predefinedAppreciations[0]?.label).toBe("C'est très bien,");
+      expect(result.data.maxCharacters).toBe(200);
+    }
+
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("/v3/enseignants/221/C/85/periodes/ALL/matieres/FRANC%C2%A4/appreciations.awp"),
+      {},
+      { includeGtk: false },
+    );
+    expect(http.postForm).toHaveBeenNthCalledWith(
+      2,
+      expect.stringContaining("/v3/Enseignant/221/C/85/appreciationsPredefinies.awp"),
+      {},
+      { includeGtk: false },
+    );
   });
 });

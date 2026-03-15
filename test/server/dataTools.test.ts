@@ -322,6 +322,34 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         attendanceGrid: [{ start: "08:00", end: "08:55" }],
       },
     }),
+    getTeacherGradebookNotes: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        target: { id: 85, entityType: "C", code: "3PA", label: "3ème Prépa Apprenti" },
+        subject: { code: "FRANC", routeCode: "FRANC¤", label: "FRANCAIS" },
+        selectedPeriodCode: "A002",
+        evaluations: [{ id: 18877181, label: "Ecrit" }],
+        students: [{ student: { id: 101, name: "Alice DUPONT", dispositifs: [] }, grades: { "18877181": { evaluationId: 18877181, notationLetter: false, ccf: false, nonSignificant: false, programElements: [], grade: "14" } } }],
+        evaluationCount: 1,
+        studentCount: 1,
+      },
+    }),
+    getTeacherGradebookAppreciations: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        target: { id: 85, entityType: "C", code: "3PA", label: "3ème Prépa Apprenti" },
+        subject: { code: "FRANC", routeCode: "FRANC¤", label: "FRANCAIS" },
+        selectedPeriodCode: "A002",
+        students: [{ id: 101, name: "Alice DUPONT", dispositifs: [], periods: [{ code: "A002", open: false, appreciations: [{ code: "APP1", content: "Bravo" }], positionsBySubSubject: [], programElements: [] }] }],
+        studentCount: 1,
+        predefinedAppreciations: [{ id: 1, code: "TB", label: "Très bien" }],
+        maxCharacters: 200,
+      },
+    }),
     ...overrides,
   };
 }
@@ -613,6 +641,8 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("list_teacher_rooms")).toBe(true);
     expect(server.handlers.has("get_teacher_note_settings")).toBe(true);
     expect(server.handlers.has("get_teacher_gradebook_catalog")).toBe(true);
+    expect(server.handlers.has("get_teacher_gradebook_notes")).toBe(true);
+    expect(server.handlers.has("get_teacher_gradebook_appreciations")).toBe(true);
   });
 
   it("registers get_teacher_gradebook_catalog and formats the summary", async () => {
@@ -653,5 +683,49 @@ describe("MCP data tools", () => {
     expect(result.content[0].text).toContain("Note settings loaded for Mme D. PROF");
     expect(result.content[0].text).toContain("1 components");
     expect(data.getTeacherNoteSettings).toHaveBeenCalled();
+  });
+
+  it("registers get_teacher_gradebook_notes and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_gradebook_notes")!({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Gradebook notes for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 evaluation(s) across 1 student(s)");
+    expect(result.content[0].text).toContain("3ème Prépa Apprenti / FRANCAIS (A002)");
+    expect(data.getTeacherGradebookNotes).toHaveBeenCalledWith({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
+  });
+
+  it("registers get_teacher_gradebook_appreciations and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_gradebook_appreciations")!({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Gradebook appreciations for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 student(s) and 1 predefined appreciation(s)");
+    expect(result.content[0].text).toContain("3ème Prépa Apprenti / FRANCAIS (A002)");
+    expect(data.getTeacherGradebookAppreciations).toHaveBeenCalledWith({
+      entityId: 85,
+      periodCode: "A002",
+      subjectCode: "FRANC",
+    });
   });
 });

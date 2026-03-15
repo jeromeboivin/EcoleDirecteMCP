@@ -202,3 +202,48 @@ export function teacherGradebookCatalogUrl(opts: { version?: string } = {}): str
   const v = opts.version ?? DEFAULT_APP_VERSION;
   return `${TEACHER_API_BASE}/${API_VERSION}/niveauxListe.awp?verbe=get&v=${v}`;
 }
+
+export function teacherGradebookSubjectRouteCode(subjectCode: string, subSubjectCode?: string): string {
+  const trimmed = subjectCode.trim();
+  if (!trimmed) return "";
+
+  if (trimmed.includes("¤")) return trimmed;
+
+  const trimmedSubSubject = subSubjectCode?.trim();
+  return `${trimmed}¤${trimmedSubSubject ?? ""}`;
+}
+
+export function teacherGradebookNotesUrl(
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  periodCode: string,
+  subjectCode: string,
+  opts: { subSubjectCode?: string; version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const subjectSegment = encodeURIComponent(teacherGradebookSubjectRouteCode(subjectCode, opts.subSubjectCode));
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/matieres/${subjectSegment}/notes.awp?verbe=get&v=${v}`;
+}
+
+export function teacherGradebookAppreciationsUrl(
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  subjectCode: string,
+  opts: { subSubjectCode?: string; version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  const subjectSegment = encodeURIComponent(teacherGradebookSubjectRouteCode(subjectCode, opts.subSubjectCode));
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/ALL/matieres/${subjectSegment}/appreciations.awp?verbe=get&v=${v}`;
+}
+
+export function teacherGradebookPredefinedAppreciationsUrl(
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  opts: { version?: string } = {},
+): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/Enseignant/${teacherId}/${entityType}/${entityId}/appreciationsPredefinies.awp?verbe=get&v=${v}`;
+}

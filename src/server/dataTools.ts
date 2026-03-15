@@ -22,7 +22,9 @@ import type {
   StudentVieScolaireResult,
   TeacherClassStudentsResult,
   TeacherEmploiDuTempsResult,
+  TeacherGradebookAppreciationsResult,
   TeacherGradebookCatalogResult,
+  TeacherGradebookNotesResult,
   TeacherMessagesResult,
   TeacherNoteSettingsResult,
   TeacherRoomsResult,
@@ -108,6 +110,15 @@ const teacherEmploiDuTempsQuerySchema = {
 const teacherClassStudentsQuerySchema = {
   ...teacherQuerySchema,
   classId: z.number().int().positive(),
+};
+
+const teacherGradebookDetailQuerySchema = {
+  ...teacherQuerySchema,
+  entityId: z.number().int().positive(),
+  entityType: z.enum(["C", "G"]).optional(),
+  periodCode: z.string().min(1),
+  subjectCode: z.string().min(1),
+  subSubjectCode: z.string().optional(),
 };
 
 // ── Serialization ──────────────────────────────────────────────
@@ -463,6 +474,28 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       return resultForTeacherGradebookCatalog(result);
     }),
   );
+
+  server.tool(
+    "get_teacher_gradebook_notes",
+    "Get a teacher gradebook note grid for a selected class or group, period, and subject. Use get_teacher_gradebook_catalog first to find entityId, entityType, periodCode, and subjectCode.",
+    teacherGradebookDetailQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_gradebook_notes tool invoked");
+      const result = await data.getTeacherGradebookNotes(args);
+      return resultForTeacherGradebookNotes(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_gradebook_appreciations",
+    "Get teacher gradebook appreciation data plus predefined appreciation templates for a selected class or group and subject. Use get_teacher_gradebook_catalog first to find entityId, entityType, periodCode, and subjectCode.",
+    teacherGradebookDetailQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_gradebook_appreciations tool invoked");
+      const result = await data.getTeacherGradebookAppreciations(args);
+      return resultForTeacherGradebookAppreciations(result);
+    }),
+  );
 }
 
 function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getFamilyDocuments"]>>) {
@@ -648,6 +681,27 @@ function resultForTeacherGradebookCatalog(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherGradebookNotes(
+  result: Awaited<ReturnType<EdDataService["getTeacherGradebookNotes"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const targetLabel = result.data.target.label ?? result.data.target.code ?? `${result.data.target.entityType} ${result.data.target.id}`;
+  const subjectLabel = result.data.subject.label ?? result.data.subject.code;
+  const summary = `Gradebook notes for ${result.data.teacher.name}: ${result.data.evaluationCount} evaluation(s) across ${result.data.studentCount} student(s) for ${targetLabel} / ${subjectLabel} (${result.data.selectedPeriodCode}).`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherGradebookAppreciations(
+  result: Awaited<ReturnType<EdDataService["getTeacherGradebookAppreciations"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const targetLabel = result.data.target.label ?? result.data.target.code ?? `${result.data.target.entityType} ${result.data.target.id}`;
+  const subjectLabel = result.data.subject.label ?? result.data.subject.code;
+  const templateCount = result.data.predefinedAppreciations.length;
+  const summary = `Gradebook appreciations for ${result.data.teacher.name}: ${result.data.studentCount} student(s) and ${templateCount} predefined appreciation(s) for ${targetLabel} / ${subjectLabel} (${result.data.selectedPeriodCode}).`;
+  return successResult(summary, result.data);
+}
+
 function countNonEmptyCategories(data: FamilyDocumentsResult): number {
   let count = 0;
   if (data.factures.length > 0) count++;
@@ -680,7 +734,9 @@ function successResult(
     | StudentVieScolaireResult
     | TeacherClassStudentsResult
     | TeacherEmploiDuTempsResult
+    | TeacherGradebookAppreciationsResult
     | TeacherGradebookCatalogResult
+    | TeacherGradebookNotesResult
     | TeacherMessagesResult
     | TeacherNoteSettingsResult
     | TeacherRoomsResult

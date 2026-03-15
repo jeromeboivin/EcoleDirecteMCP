@@ -4,6 +4,11 @@ import { normalizeTeacherClassStudentsResponse } from "../../src/ecoledirecte/ap
 import { normalizeTeacherRoomsResponse } from "../../src/ecoledirecte/api/teacherRooms.js";
 import { normalizeTeacherNoteSettingsResponse } from "../../src/ecoledirecte/api/teacherNoteSettings.js";
 import { normalizeTeacherGradebookCatalogResponse } from "../../src/ecoledirecte/api/teacherGradebookCatalog.js";
+import {
+  normalizeTeacherGradebookAppreciationsResponse,
+  normalizeTeacherGradebookPredefinedAppreciationsResponse,
+} from "../../src/ecoledirecte/api/teacherGradebookAppreciations.js";
+import { normalizeTeacherGradebookNotesResponse } from "../../src/ecoledirecte/api/teacherGradebookNotes.js";
 
 describe("teacher data normalizers", () => {
   describe("normalizeTeacherClassStudentsResponse", () => {
@@ -374,6 +379,214 @@ describe("teacher data normalizers", () => {
 
       expect(result.ok).toBe(false);
       expect(result.message).toBe("Token invalide !");
+    });
+  });
+
+  describe("normalizeTeacherGradebookNotesResponse", () => {
+    it("normalizes evaluations and per-student note cells", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          devoirs: [
+            {
+              id: 18877181,
+              idProf: 221,
+              nomProf: "Mme D. PROF",
+              libelle: "Ecrit",
+              coef: 3,
+              date: "2025-12-10",
+              dateAffichage: "2026-01-14",
+              nonSignificatif: false,
+              ccf: false,
+              noteSur: 20,
+              notationLettre: false,
+              noteNegative: false,
+              statutPeriode: "cloture",
+              idPeriode: "A002X001",
+              codeMatiere: "FRANC",
+              codeSSMatiere: "",
+              avecNote: true,
+              commentaire: "",
+              elementsProgramme: [{ id: 1 }],
+              typeDevoir: { id: 8, code: "BB", libelle: "Bac blanc" },
+            },
+          ],
+          eleves: [
+            {
+              eleve: {
+                id: 6099,
+                prenom: "Irem",
+                nom: "AKYOL",
+                classeLibelle: "Premiere C",
+                codeClasse: "1C",
+                sexe: "F",
+                photo: "//photo.jpg",
+                ordreArrivee: "A",
+                dispositifs: [],
+              },
+              devoirs: {
+                "18877181": {
+                  idNote: 46193197,
+                  idDevoir: 18877181,
+                  idPeriode: "A002X001",
+                  coef: 3,
+                  note: "8",
+                  noteSur: 20,
+                  lettre: "",
+                  notationLettre: false,
+                  date: "2025-12-10",
+                  devoirLibelle: "Ecrit",
+                  ccf: false,
+                  nonSignificatif: false,
+                  codeMatiere: "FRANC",
+                  codeSSMatiere: "",
+                  commentaire: "",
+                  elementsProgramme: [{ id: 1 }],
+                },
+              },
+            },
+          ],
+        },
+      };
+
+      const result = normalizeTeacherGradebookNotesResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.evaluationCount).toBe(1);
+      expect(result.data?.studentCount).toBe(1);
+      expect(result.data?.evaluations[0]).toMatchObject({
+        id: 18877181,
+        teacherId: 221,
+        teacherName: "Mme D. PROF",
+        label: "Ecrit",
+        coefficient: 3,
+        periodId: "A002X001",
+        subjectCode: "FRANC",
+        homeworkType: { code: "BB", label: "Bac blanc" },
+      });
+      expect(result.data?.students[0]).toMatchObject({
+        student: {
+          id: 6099,
+          name: "Irem AKYOL",
+          classLabel: "Premiere C",
+          classCode: "1C",
+        },
+      });
+      expect(result.data?.students[0]?.grades["18877181"]).toMatchObject({
+        noteId: 46193197,
+        evaluationId: 18877181,
+        grade: "8",
+        maxGrade: 20,
+        evaluationLabel: "Ecrit",
+      });
+    });
+  });
+
+  describe("teacher gradebook appreciations normalizers", () => {
+    it("normalizes per-student appreciation periods and decodes base64 content", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          eleves: [
+            {
+              eleve: {
+                id: 6099,
+                prenom: "Irem",
+                nom: "AKYOL",
+                codeClasse: "1C",
+                sexe: "F",
+                photo: "//photo.jpg",
+                ordreArrivee: "A",
+                dispositifs: [],
+              },
+              periodes: [
+                {
+                  code: "A002",
+                  libelle: "Trimestre 2",
+                  libelleCourt: "T2",
+                  moyenne: "11,05",
+                  position: "",
+                  dateDebut: "20251124",
+                  dateFin: "20260205",
+                  ouverte: false,
+                  dateCalculMoyenne: "12/03/2026 à 08h01",
+                  appreciations: [
+                    {
+                      code: "APP1",
+                      libelle: "",
+                      contenu: "QnJhdm8gLSBjb250aW51ZSE=",
+                    },
+                  ],
+                  positionSSMat: [],
+                  elementsProgramme: [],
+                },
+              ],
+            },
+          ],
+        },
+      };
+
+      const result = normalizeTeacherGradebookAppreciationsResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.studentCount).toBe(1);
+      expect(result.data?.students[0]).toMatchObject({
+        id: 6099,
+        name: "Irem AKYOL",
+        classCode: "1C",
+      });
+      expect(result.data?.students[0]?.periods[0]).toMatchObject({
+        code: "A002",
+        label: "Trimestre 2",
+        shortLabel: "T2",
+        average: "11,05",
+        open: false,
+        averageCalculatedAt: "12/03/2026 à 08h01",
+      });
+      expect(result.data?.students[0]?.periods[0]?.appreciations[0]).toEqual({
+        code: "APP1",
+        content: "Bravo - continue!",
+      });
+    });
+
+    it("normalizes predefined appreciations and decodes labels", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: {
+          appreciations: [
+            {
+              id: 2,
+              code: "TB",
+              libelle: "Qydlc3QgdHLDqHMgYmllbiw=",
+              type: "Enseignant",
+              idAuteur: 221,
+            },
+          ],
+          parametrage: {
+            nbCaractMax: 200,
+          },
+        },
+      };
+
+      const result = normalizeTeacherGradebookPredefinedAppreciationsResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.maxCharacters).toBe(200);
+      expect(result.data?.predefinedAppreciations).toEqual([
+        {
+          id: 2,
+          code: "TB",
+          label: "C'est très bien,",
+          type: "Enseignant",
+          authorId: 221,
+        },
+      ]);
     });
   });
 });
