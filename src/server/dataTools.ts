@@ -22,6 +22,7 @@ import type {
   StudentVieScolaireResult,
   TeacherClassStudentsResult,
   TeacherEmploiDuTempsResult,
+  TeacherGradebookCatalogResult,
   TeacherMessagesResult,
   TeacherNoteSettingsResult,
   TeacherRoomsResult,
@@ -451,6 +452,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       return resultForTeacherNoteSettings(result);
     }),
   );
+
+  server.tool(
+    "get_teacher_gradebook_catalog",
+    "Get the full gradebook navigation catalog: establishments, classes, groups, periods, subjects, council dates, and attendance grid. Requires a teacher (type P) profile.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_gradebook_catalog tool invoked");
+      const result = await data.getTeacherGradebookCatalog(args);
+      return resultForTeacherGradebookCatalog(result);
+    }),
+  );
 }
 
 function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getFamilyDocuments"]>>) {
@@ -625,6 +637,17 @@ function resultForTeacherNoteSettings(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherGradebookCatalog(
+  result: Awaited<ReturnType<EdDataService["getTeacherGradebookCatalog"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const estabCount = result.data.establishments.length;
+  const classCount = result.data.establishments.reduce((sum, e) => sum + e.classes.length, 0);
+  const groupCount = result.data.establishments.reduce((sum, e) => sum + e.groups.length, 0);
+  const summary = `Gradebook catalog for ${result.data.teacher.name}: ${estabCount} establishment(s), ${classCount} class(es), ${groupCount} group(s).`;
+  return successResult(summary, result.data);
+}
+
 function countNonEmptyCategories(data: FamilyDocumentsResult): number {
   let count = 0;
   if (data.factures.length > 0) count++;
@@ -657,6 +680,7 @@ function successResult(
     | StudentVieScolaireResult
     | TeacherClassStudentsResult
     | TeacherEmploiDuTempsResult
+    | TeacherGradebookCatalogResult
     | TeacherMessagesResult
     | TeacherNoteSettingsResult
     | TeacherRoomsResult

@@ -32,6 +32,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Teacher class students** — returns the roster of students in a specific class through the authenticated `classes/{classId}/eleves.awp` route.
 - **Teacher rooms** — lists available rooms through the authenticated `salles.awp` route.
 - **Teacher note settings** — returns grading configuration through the authenticated `enseignants/{id}/parametrages.awp` route.
+- **Teacher gradebook catalog** — returns the full gradebook navigation model (establishments, classes, groups, periods, subjects, council dates, attendance grid) through the authenticated `niveauxListe.awp` route.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -163,12 +164,15 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `get_teacher_class_students` | Get the student roster for a class (`classId`) |
 | `list_teacher_rooms` | List available rooms for the teacher's establishment |
 | `get_teacher_note_settings` | Get grading configuration (components, homework types, establishment parameters) |
+| `get_teacher_gradebook_catalog` | Get the full gradebook navigation catalog (establishments, classes, groups, periods, subjects, council dates, attendance grid) |
 | `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
 | `logout_full` | Clear both session and saved credentials. Optional `profile`. |
 
 If multiple family accounts or students are available, pass `accountId` and/or `studentId`. When the imported or authenticated session includes browser account metadata such as `idLogin` and `current`, the server automatically switches to the requested family context before calling the private API. The tool error payload lists the available choices when selection is ambiguous.
 
 Student-scoped tools accept an optional `students` array of `{studentId, accountId?}` targets. When omitted, the tool queries all known students sequentially, switching account context and renewing the token between each call. All tool calls are serialized to prevent concurrent API requests from causing stale-token conflicts.
+
+Teacher tools use the `apip.ecoledirecte.com` host observed in live browser traffic, rather than the standard `api.ecoledirecte.com` used by family/student routes.
 
 ## Browser Session Export Format
 

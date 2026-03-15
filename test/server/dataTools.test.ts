@@ -245,6 +245,83 @@ function stubData(overrides?: Partial<Record<string, unknown>>) {
         contentBase64: "JVBER...",
       },
     }),
+    // ── Teacher stubs ──────────────────────────────────────────
+    listTeacherMessages: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        mailbox: "received",
+        page: 0,
+        itemsPerPage: 100,
+        query: "",
+        folders: [],
+        messages: [],
+        pagination: {},
+        settings: { recipients: {} },
+      },
+    }),
+    getTeacherEmploiDuTemps: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        days: [],
+        totalEvents: 0,
+      },
+    }),
+    listTeacherClasses: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        classes: [{ id: 85, code: "3PA", label: "3ème Prépa Apprenti" }],
+      },
+    }),
+    getTeacherClassStudents: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "class",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        class: { id: 85, name: "3ème Prépa Apprenti" },
+        students: [{ id: 101, name: "Alice DUPONT" }],
+      },
+    }),
+    listTeacherRooms: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        rooms: [{ id: 1, code: "S101", label: "Salle 101", reservable: true }],
+      },
+    }),
+    getTeacherNoteSettings: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        components: [{ code: "ECRIT", label: "Écrit" }],
+        homeworkTypes: [{ code: "DS", label: "Devoir surveillé" }],
+        establishmentParams: [],
+      },
+    }),
+    getTeacherGradebookCatalog: vi.fn().mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 221, name: "Mme D. PROF" },
+        establishments: [
+          {
+            id: 6,
+            code: "LP",
+            label: "Lycée Pro",
+            classes: [{ id: 85, code: "3PA", typeEntity: "C", isPP: true, periods: [] }],
+            groups: [],
+          },
+        ],
+        attendanceGrid: [{ start: "08:00", end: "08:55" }],
+      },
+    }),
     ...overrides,
   };
 }
@@ -521,5 +598,60 @@ describe("MCP data tools", () => {
     expect(callOrder).toEqual([1154, 15902]);
     expect(data.getStudentNotes).toHaveBeenCalledTimes(2);
     expect(result.content[0].text).toContain("---");
+  });
+
+  // ── Teacher tools ──────────────────────────────────────────
+
+  it("registers all teacher tools", () => {
+    const server = stubServer();
+    registerDataTools(server as any, stubData() as any);
+
+    expect(server.handlers.has("list_teacher_messages")).toBe(true);
+    expect(server.handlers.has("get_teacher_emploi_du_temps")).toBe(true);
+    expect(server.handlers.has("list_teacher_classes")).toBe(true);
+    expect(server.handlers.has("get_teacher_class_students")).toBe(true);
+    expect(server.handlers.has("list_teacher_rooms")).toBe(true);
+    expect(server.handlers.has("get_teacher_note_settings")).toBe(true);
+    expect(server.handlers.has("get_teacher_gradebook_catalog")).toBe(true);
+  });
+
+  it("registers get_teacher_gradebook_catalog and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_gradebook_catalog")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Gradebook catalog for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 establishment(s)");
+    expect(result.content[0].text).toContain("1 class(es)");
+    expect(data.getTeacherGradebookCatalog).toHaveBeenCalled();
+  });
+
+  it("registers list_teacher_classes and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("list_teacher_classes")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("1 class(es)");
+    expect(result.content[0].text).toContain("Mme D. PROF");
+    expect(data.listTeacherClasses).toHaveBeenCalled();
+  });
+
+  it("registers get_teacher_note_settings and formats the summary", async () => {
+    const server = stubServer();
+    const data = stubData();
+    registerDataTools(server as any, data as any);
+
+    const result = await server.handlers.get("get_teacher_note_settings")!({});
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("Note settings loaded for Mme D. PROF");
+    expect(result.content[0].text).toContain("1 components");
+    expect(data.getTeacherNoteSettings).toHaveBeenCalled();
   });
 });

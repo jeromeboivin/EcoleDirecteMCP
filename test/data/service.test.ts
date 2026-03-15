@@ -957,3 +957,100 @@ describe("EdDataService", () => {
     }
   });
 });
+
+// ── Teacher data service tests ─────────────────────────────────
+
+const teacherAuthState: AuthState = {
+  status: "authenticated",
+  token: "teacher-tok",
+  accounts: [
+    {
+      id: 221,
+      idLogin: 708430,
+      type: "P",
+      name: "Mme D. PROF",
+      establishment: "Centre Scolaire",
+      main: true,
+      current: true,
+      classes: [
+        { id: 85, code: "3PA", label: "3ème Prépa Apprenti" },
+      ],
+    },
+  ],
+};
+
+describe("teacher gradebook catalog", () => {
+  it("fetches and normalizes the gradebook catalog", async () => {
+    const catalogBody: RawApiResponse = {
+      code: ApiCode.OK,
+      token: "teacher-tok",
+      message: "",
+      data: [
+        {
+          id: 6,
+          code: "LP",
+          nom: "Lycée Pro",
+          parametres: {
+            grille: [{ heureDbt: "08:00", heureFin: "08:55" }],
+          },
+          niveaux: [
+            {
+              classes: [{
+                idGroupe: 85,
+                code: "3PA",
+                libelle: "3ème Prépa Apprenti",
+                typeEntity: "C",
+                tabPP: [{ idPP: 221 }],
+                periodes: [{
+                  codePeriode: "A001",
+                  libelle: "Trimestre 1",
+                  dateConseil: "2025-12-05",
+                  saisieAppreciation: true,
+                  matieres: [
+                    { code: "FRANC", libelle: "Français", avecNotation: true, isEditable: true },
+                  ],
+                }],
+              }],
+              groupes: [],
+            },
+          ],
+        },
+      ],
+    };
+
+    const http = makeHttp([catalogBody]);
+    const auth = makeAuth(teacherAuthState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookCatalog();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.teacher.id).toBe(221);
+      expect(result.data.establishments).toHaveLength(1);
+      expect(result.data.establishments[0].classes).toHaveLength(1);
+      expect(result.data.establishments[0].classes[0].id).toBe(85);
+      expect(result.data.establishments[0].classes[0].isPP).toBe(true);
+      expect(result.data.establishments[0].classes[0].periods[0].subjects[0].code).toBe("FRANC");
+      expect(result.data.attendanceGrid).toHaveLength(1);
+    }
+    expect(http.postForm).toHaveBeenCalledWith(
+      expect.stringContaining("/v3/niveauxListe.awp"),
+      {},
+      { includeGtk: false },
+    );
+  });
+
+  it("returns failure when not authenticated as teacher", async () => {
+    const http = makeHttp([]);
+    const auth = makeAuth(authenticatedState);
+    const service = new EdDataService(http, auth as any);
+
+    const result = await service.getTeacherGradebookCatalog();
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("teacher");
+    }
+  });
+});

@@ -19,12 +19,14 @@ import {
   studentVieScolaireUrl,
   teacherClassStudentsUrl,
   teacherEmploiDuTempsUrl,
+  teacherGradebookCatalogUrl,
   teacherMessagesUrl,
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
   API_BASE,
   API_VERSION,
   DEFAULT_APP_VERSION,
+  TEACHER_API_BASE,
 } from "../../src/ecoledirecte/api/constants.js";
 
 describe("loginUrl", () => {
@@ -212,45 +214,55 @@ describe("studentEmploiDuTempsUrl", () => {
 });
 
 describe("teacherMessagesUrl", () => {
-  it("returns the teacher messages endpoint", () => {
+  it("returns the teacher messages endpoint on TEACHER_API_BASE", () => {
     const url = teacherMessagesUrl(221);
     expect(url).toContain(`/enseignants/221/messages.awp`);
     expect(url).toContain(`v=${DEFAULT_APP_VERSION}`);
+    expect(url).toMatch(/^https:\/\/apip\.ecoledirecte\.com\//);
   });
 });
 
 describe("teacherEmploiDuTempsUrl", () => {
-  it("returns the teacher timetable endpoint", () => {
+  it("returns the teacher timetable endpoint on TEACHER_API_BASE", () => {
     const url = teacherEmploiDuTempsUrl(221);
     expect(url).toBe(
-      `${API_BASE}/${API_VERSION}/P/221/emploidutemps.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+      `${TEACHER_API_BASE}/${API_VERSION}/P/221/emploidutemps.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
 
 describe("teacherClassStudentsUrl", () => {
-  it("returns the class students endpoint", () => {
+  it("returns the class students endpoint on TEACHER_API_BASE", () => {
     const url = teacherClassStudentsUrl(42);
     expect(url).toBe(
-      `${API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+      `${TEACHER_API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
 
 describe("teacherRoomsUrl", () => {
-  it("returns the rooms endpoint", () => {
+  it("returns the rooms endpoint on TEACHER_API_BASE", () => {
     const url = teacherRoomsUrl();
     expect(url).toBe(
-      `${API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+      `${TEACHER_API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });
 
 describe("teacherNoteSettingsUrl", () => {
-  it("returns the note settings endpoint", () => {
+  it("returns the note settings endpoint on TEACHER_API_BASE", () => {
     const url = teacherNoteSettingsUrl(221);
     expect(url).toBe(
-      `${API_BASE}/${API_VERSION}/enseignants/221/parametrages.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+      `${TEACHER_API_BASE}/${API_VERSION}/enseignants/221/parametrages.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherGradebookCatalogUrl", () => {
+  it("returns the niveauxListe endpoint on TEACHER_API_BASE", () => {
+    const url = teacherGradebookCatalogUrl();
+    expect(url).toBe(
+      `${TEACHER_API_BASE}/${API_VERSION}/niveauxListe.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });

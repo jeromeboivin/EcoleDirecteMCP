@@ -1,6 +1,8 @@
 /** EcoleDirecte API endpoints, headers, and version defaults. */
 
 export const API_BASE = "https://api.ecoledirecte.com";
+/** Teacher/personnel routes use a separate host observed in live browser traffic. */
+export const TEACHER_API_BASE = "https://apip.ecoledirecte.com";
 export const API_VERSION = "v3";
 
 /** Default app version sent in query strings. Overrideable via config. */
@@ -157,14 +159,14 @@ export const EXPOSED_HEADERS = [
 
 export const CONTENT_TYPE_FORM = "application/x-www-form-urlencoded";
 
-function messagesUrl(scopePath: string, opts: MessagesUrlOptions): string {
+function messagesUrl(scopePath: string, opts: MessagesUrlOptions, baseUrl: string = API_BASE): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   const mailbox = opts.mailbox ?? "received";
   const folderId = opts.folderId ?? 0;
   const page = opts.page ?? 0;
   const itemsPerPage = opts.itemsPerPage ?? 100;
   const query = encodeURIComponent(opts.query ?? "");
-  return `${API_BASE}/${API_VERSION}/${scopePath}/messages.awp?force=false&typeRecuperation=${mailbox}&idClasseur=${folderId}&orderBy=date&order=desc&query=${query}&onlyRead=&page=${page}&itemsPerPage=${itemsPerPage}&getAll=0&verbe=get&v=${v}`;
+  return `${baseUrl}/${API_VERSION}/${scopePath}/messages.awp?force=false&typeRecuperation=${mailbox}&idClasseur=${folderId}&orderBy=date&order=desc&query=${query}&onlyRead=&page=${page}&itemsPerPage=${itemsPerPage}&getAll=0&verbe=get&v=${v}`;
 }
 
 // ── Teacher routes ─────────────────────────────────────────────
@@ -173,25 +175,30 @@ export function teacherMessagesUrl(
   teacherId: number,
   opts: MessagesUrlOptions = {},
 ): string {
-  return messagesUrl(`enseignants/${teacherId}`, opts);
+  return messagesUrl(`enseignants/${teacherId}`, opts, TEACHER_API_BASE);
 }
 
 export function teacherEmploiDuTempsUrl(teacherId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${API_BASE}/${API_VERSION}/P/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/P/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
 }
 
 export function teacherClassStudentsUrl(classId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${API_BASE}/${API_VERSION}/classes/${classId}/eleves.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/classes/${classId}/eleves.awp?verbe=get&v=${v}`;
 }
 
 export function teacherRoomsUrl(opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${v}`;
 }
 
 export function teacherNoteSettingsUrl(teacherId: number, opts: { version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${API_BASE}/${API_VERSION}/enseignants/${teacherId}/parametrages.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/parametrages.awp?verbe=get&v=${v}`;
+}
+
+export function teacherGradebookCatalogUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${TEACHER_API_BASE}/${API_VERSION}/niveauxListe.awp?verbe=get&v=${v}`;
 }

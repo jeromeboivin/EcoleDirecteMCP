@@ -14,6 +14,7 @@ import {
   studentSessionsRdvUrl,
   teacherClassStudentsUrl,
   teacherEmploiDuTempsUrl,
+  teacherGradebookCatalogUrl,
   teacherMessagesUrl,
   teacherNoteSettingsUrl,
   teacherRoomsUrl,
@@ -82,6 +83,10 @@ import {
   normalizeTeacherNoteSettingsResponse,
   type TeacherNoteSettingsPayload,
 } from "../api/teacherNoteSettings.js";
+import {
+  normalizeTeacherGradebookCatalogResponse,
+  type TeacherGradebookCatalogPayload,
+} from "../api/teacherGradebookCatalog.js";
 import { ApiCode, type RawApiResponse } from "../api/normalize.js";
 import type { AuthService } from "../auth/service.js";
 import type { AccountInfo, AuthState, StudentInfo } from "../auth/types.js";
@@ -209,6 +214,8 @@ export interface TeacherClassStudentsQuery extends TeacherQuery {
 }
 
 export interface TeacherNoteSettingsQuery extends TeacherQuery {}
+
+export interface TeacherGradebookCatalogQuery extends TeacherQuery {}
 
 export interface FamilyChoice {
   id: number;
@@ -405,6 +412,11 @@ export interface TeacherRoomsResult extends TeacherRoomsPayload {
 }
 
 export interface TeacherNoteSettingsResult extends TeacherNoteSettingsPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+}
+
+export interface TeacherGradebookCatalogResult extends TeacherGradebookCatalogPayload {
   scope: "teacher";
   teacher: TeacherChoice;
 }
@@ -1315,6 +1327,35 @@ export class EdDataService {
         scope: "teacher",
         teacher: summarizeTeacher(teacher.data),
         classes: teacher.data.classes ?? [],
+      },
+    };
+  }
+
+  async getTeacherGradebookCatalog(
+    query: TeacherGradebookCatalogQuery = {},
+  ): Promise<DataResult<TeacherGradebookCatalogResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const response = await this.fetchData(
+      teacherGradebookCatalogUrl({ version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherGradebookCatalogResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected gradebook catalog response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        ...normalized.data,
       },
     };
   }

@@ -3,6 +3,7 @@ import { ApiCode, type RawApiResponse } from "../../src/ecoledirecte/api/normali
 import { normalizeTeacherClassStudentsResponse } from "../../src/ecoledirecte/api/teacherClassStudents.js";
 import { normalizeTeacherRoomsResponse } from "../../src/ecoledirecte/api/teacherRooms.js";
 import { normalizeTeacherNoteSettingsResponse } from "../../src/ecoledirecte/api/teacherNoteSettings.js";
+import { normalizeTeacherGradebookCatalogResponse } from "../../src/ecoledirecte/api/teacherGradebookCatalog.js";
 
 describe("teacher data normalizers", () => {
   describe("normalizeTeacherClassStudentsResponse", () => {
@@ -194,6 +195,185 @@ describe("teacher data normalizers", () => {
 
       expect(result.ok).toBe(true);
       expect(result.data?.components).toEqual([]);
+    });
+  });
+
+  describe("normalizeTeacherGradebookCatalogResponse", () => {
+    it("normalizes a full catalog with establishments, classes, groups, and periods", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: [
+          {
+            id: 6,
+            code: "LP",
+            nom: "Lycée Pro",
+            parametres: {
+              grille: [
+                { heureDbt: "08:00", heureFin: "08:55" },
+                { heureDbt: "09:00", heureFin: "09:55" },
+              ],
+            },
+            niveaux: [
+              {
+                classes: [
+                  {
+                    idGroupe: 85,
+                    code: "3PA",
+                    libelle: "3ème Prépa Apprenti",
+                    typeEntity: "C",
+                    tabPP: [{ idPP: 221 }],
+                    periodes: [
+                      {
+                        codePeriode: "A001",
+                        libelle: "Trimestre 1",
+                        dateConseil: "2025-12-05",
+                        saisieAppreciation: true,
+                        matieres: [
+                          { code: "FRANC", libelle: "Français", avecNotation: true, isEditable: true },
+                          { code: "MATHS", libelle: "Mathématiques", avecNotation: true, isEditable: false },
+                        ],
+                      },
+                    ],
+                  },
+                ],
+                groupes: [
+                  {
+                    idGroupe: 200,
+                    code: "VICLA_TG6",
+                    libelle: "Vie de classe TG6",
+                    typeEntity: "G",
+                    periodes: [
+                      {
+                        codePeriode: "A001",
+                        libelle: "Trimestre 1",
+                        saisieAppreciation: false,
+                        matieres: [],
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.establishments).toHaveLength(1);
+      expect(result.data?.establishments[0]).toMatchObject({
+        id: 6,
+        code: "LP",
+        label: "Lycée Pro",
+      });
+
+      const classes = result.data!.establishments[0].classes;
+      expect(classes).toHaveLength(1);
+      expect(classes[0]).toMatchObject({
+        id: 85,
+        code: "3PA",
+        label: "3ème Prépa Apprenti",
+        typeEntity: "C",
+        isPP: true,
+      });
+      expect(classes[0].periods).toHaveLength(1);
+      expect(classes[0].periods[0]).toMatchObject({
+        code: "A001",
+        label: "Trimestre 1",
+        councilDate: "2025-12-05",
+        appreciationOpen: true,
+      });
+      expect(classes[0].periods[0].subjects).toEqual([
+        { code: "FRANC", label: "Français", hasGrading: true, isEditable: true },
+        { code: "MATHS", label: "Mathématiques", hasGrading: true, isEditable: false },
+      ]);
+
+      const groups = result.data!.establishments[0].groups;
+      expect(groups).toHaveLength(1);
+      expect(groups[0]).toMatchObject({
+        id: 200,
+        code: "VICLA_TG6",
+        typeEntity: "G",
+        label: "Vie de classe TG6",
+      });
+      expect(groups[0].periods[0].appreciationOpen).toBe(false);
+
+      expect(result.data?.attendanceGrid).toEqual([
+        { start: "08:00", end: "08:55" },
+        { start: "09:00", end: "09:55" },
+      ]);
+    });
+
+    it("returns empty arrays when data is an empty array", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: [],
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.establishments).toEqual([]);
+      expect(result.data?.attendanceGrid).toEqual([]);
+    });
+
+    it("skips establishments without a numeric id", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: [{ code: "LP", nom: "Ghost" }],
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(true);
+      expect(result.data?.establishments).toHaveLength(0);
+    });
+
+    it("marks isPP false when tabPP is empty", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.OK,
+        token: "",
+        message: "",
+        data: [
+          {
+            id: 2,
+            niveaux: [{
+              classes: [{
+                idGroupe: 42,
+                typeEntity: "C",
+                tabPP: [],
+                periodes: [],
+              }],
+              groupes: [],
+            }],
+          },
+        ],
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.data?.establishments[0].classes[0].isPP).toBe(false);
+    });
+
+    it("returns failure for non-OK code", () => {
+      const raw: RawApiResponse = {
+        code: ApiCode.EXPIRED_KEY,
+        token: "",
+        message: "Token invalide !",
+        data: [],
+      };
+
+      const result = normalizeTeacherGradebookCatalogResponse(raw);
+
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe("Token invalide !");
     });
   });
 });
