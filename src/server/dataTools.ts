@@ -20,6 +20,11 @@ import type {
   StudentProfileResult,
   StudentSessionsRdvResult,
   StudentVieScolaireResult,
+  TeacherClassStudentsResult,
+  TeacherEmploiDuTempsResult,
+  TeacherMessagesResult,
+  TeacherNoteSettingsResult,
+  TeacherRoomsResult,
 } from "../ecoledirecte/data/service.js";
 import { log } from "../ecoledirecte/logging.js";
 
@@ -82,6 +87,26 @@ const familyDocumentDownloadQuerySchema = {
     "inscriptions",
     "entreprises",
   ]),
+};
+
+const teacherQuerySchema = {
+  accountId: z.number().int().positive().optional(),
+};
+
+const teacherMessageFieldsSchema = {
+  ...teacherQuerySchema,
+  ...messageFieldsSchema,
+};
+
+const teacherEmploiDuTempsQuerySchema = {
+  ...teacherQuerySchema,
+  dateDebut: z.string(),
+  dateFin: z.string(),
+};
+
+const teacherClassStudentsQuerySchema = {
+  ...teacherQuerySchema,
+  classId: z.number().int().positive(),
 };
 
 // ── Serialization ──────────────────────────────────────────────
@@ -358,6 +383,74 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
       );
     }),
   );
+
+  // ── Teacher tools ──────────────────────────────────────────
+
+  server.tool(
+    "list_teacher_messages",
+    "List messages for the teacher account. Requires a teacher (type P) profile.",
+    teacherMessageFieldsSchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_messages tool invoked");
+      const result = await data.listTeacherMessages(args);
+      return resultForTeacherMessages(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_emploi_du_temps",
+    "Get teacher timetable for a date range. Requires a teacher (type P) profile.",
+    teacherEmploiDuTempsQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_emploi_du_temps tool invoked");
+      const result = await data.getTeacherEmploiDuTemps(args);
+      return resultForTeacherEmploiDuTemps(result);
+    }),
+  );
+
+  server.tool(
+    "list_teacher_classes",
+    "List classes assigned to the teacher from account metadata. No API call needed.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_classes tool invoked");
+      const result = await data.listTeacherClasses(args);
+      return resultForTeacherClasses(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_class_students",
+    "Get the roster of students in a specific class. Use list_teacher_classes to find classId.",
+    teacherClassStudentsQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_class_students tool invoked");
+      const result = await data.getTeacherClassStudents(args);
+      return resultForTeacherClassStudents(result);
+    }),
+  );
+
+  server.tool(
+    "list_teacher_rooms",
+    "List available rooms for the teacher's establishment.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "list_teacher_rooms tool invoked");
+      const result = await data.listTeacherRooms(args);
+      return resultForTeacherRooms(result);
+    }),
+  );
+
+  server.tool(
+    "get_teacher_note_settings",
+    "Get grading configuration (composantes, types de devoirs, paramètres) for the teacher.",
+    teacherQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_note_settings tool invoked");
+      const result = await data.getTeacherNoteSettings(args);
+      return resultForTeacherNoteSettings(result);
+    }),
+  );
 }
 
 function resultForFamilyDocuments(result: Awaited<ReturnType<EdDataService["getFamilyDocuments"]>>) {
@@ -481,6 +574,57 @@ function resultForStudentEmploiDuTemps(
   return successResult(summary, result.data);
 }
 
+// ── Teacher result formatters ──────────────────────────────────
+
+function resultForTeacherMessages(
+  result: Awaited<ReturnType<EdDataService["listTeacherMessages"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.messages.length} teacher messages for ${result.data.teacher.name} in ${result.data.mailbox}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherEmploiDuTemps(
+  result: Awaited<ReturnType<EdDataService["getTeacherEmploiDuTemps"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.totalEvents} timetable events across ${result.data.days.length} days for ${result.data.teacher.name}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherClasses(
+  result: Awaited<ReturnType<EdDataService["listTeacherClasses"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const count = result.data.classes?.length ?? 0;
+  const summary = `${count} class(es) assigned to ${result.data.teacher.name}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherClassStudents(
+  result: Awaited<ReturnType<EdDataService["getTeacherClassStudents"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.students.length} students in class for ${result.data.teacher.name}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherRooms(
+  result: Awaited<ReturnType<EdDataService["listTeacherRooms"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `${result.data.rooms.length} rooms available for ${result.data.teacher.name}.`;
+  return successResult(summary, result.data);
+}
+
+function resultForTeacherNoteSettings(
+  result: Awaited<ReturnType<EdDataService["getTeacherNoteSettings"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const summary = `Note settings loaded for ${result.data.teacher.name}: ${result.data.components.length} components, ${result.data.homeworkTypes.length} homework types.`;
+  return successResult(summary, result.data);
+}
+
 function countNonEmptyCategories(data: FamilyDocumentsResult): number {
   let count = 0;
   if (data.factures.length > 0) count++;
@@ -510,7 +654,13 @@ function successResult(
     | StudentNotesResult
     | StudentProfileResult
     | StudentSessionsRdvResult
-    | StudentVieScolaireResult,
+    | StudentVieScolaireResult
+    | TeacherClassStudentsResult
+    | TeacherEmploiDuTempsResult
+    | TeacherMessagesResult
+    | TeacherNoteSettingsResult
+    | TeacherRoomsResult
+    | { scope: string; teacher: { name: string }; classes: unknown },
 ) {
   return {
     content: [

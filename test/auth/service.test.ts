@@ -139,6 +139,8 @@ function makeStore(): AuthStore {
     loadSession: vi.fn().mockResolvedValue(undefined),
     clearSession: vi.fn().mockResolvedValue(undefined),
     clearAll: vi.fn().mockResolvedValue(undefined),
+    loadProfileIndex: vi.fn().mockResolvedValue({ profiles: [] }),
+    saveProfileIndex: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -213,9 +215,9 @@ describe("AuthService", () => {
           { id: 1, type: "1", name: "Jane Doe", establishment: "Lycee", current: true },
         ]);
       }
-      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
+      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" }, undefined);
       expect(store.saveSession).toHaveBeenCalledWith(
-        expect.objectContaining({ token: "header-token", accounts: expect.any(Array) }),
+        expect.objectContaining({ token: "header-token", accounts: expect.any(Array) }), undefined,
       );
     });
 
@@ -317,7 +319,7 @@ describe("AuthService", () => {
         }),
         { includeToken: false, includeTwoFaToken: false },
       );
-      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
+      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" }, undefined);
     });
 
     it("returns an error when no TOTP challenge is pending", async () => {
@@ -384,13 +386,13 @@ describe("AuthService", () => {
         expect(result.token).toBe("final-token");
       }
       expect(store.saveSession).toHaveBeenCalledWith(
-        expect.objectContaining({ token: "final-token", twoFaToken: "twofa-final" }),
+        expect.objectContaining({ token: "final-token", twoFaToken: "twofa-final" }), undefined,
       );
       expect(store.saveCredentials).toHaveBeenCalledWith({
         identifiant: "user",
         motdepasse: "pass",
         fa: doubleAuthReplayFa(),
-      });
+      }, undefined);
       expect(http.postForm).toHaveBeenNthCalledWith(
         4,
         expect.stringContaining("/v3/login.awp?v=4.96.3"),
@@ -616,7 +618,7 @@ describe("AuthService", () => {
       }
       expect(http.setTwoFaToken).toHaveBeenCalledWith("twofa-imported");
       expect(store.saveSession).toHaveBeenCalledWith(
-        expect.objectContaining({ token: "header-probe-token", twoFaToken: "twofa-probe" }),
+        expect.objectContaining({ token: "header-probe-token", twoFaToken: "twofa-probe" }), undefined,
       );
     });
 
@@ -684,7 +686,7 @@ describe("AuthService", () => {
         expect.stringContaining("/v3/login.awp?v=4.96.3"),
         expect.objectContaining({ fa: [] }),
       );
-      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" });
+      expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" }, undefined);
     });
 
     it("returns an actionable error when no credentials file exists", async () => {
@@ -841,7 +843,7 @@ describe("AuthService", () => {
             expect.objectContaining({ id: 828, current: false }),
             expect.objectContaining({ id: 17405, current: true }),
           ]),
-        }),
+        }), undefined,
       );
     });
 

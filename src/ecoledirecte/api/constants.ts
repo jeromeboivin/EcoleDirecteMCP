@@ -166,3 +166,32 @@ function messagesUrl(scopePath: string, opts: MessagesUrlOptions): string {
   const query = encodeURIComponent(opts.query ?? "");
   return `${API_BASE}/${API_VERSION}/${scopePath}/messages.awp?force=false&typeRecuperation=${mailbox}&idClasseur=${folderId}&orderBy=date&order=desc&query=${query}&onlyRead=&page=${page}&itemsPerPage=${itemsPerPage}&getAll=0&verbe=get&v=${v}`;
 }
+
+// ── Teacher routes ─────────────────────────────────────────────
+
+export function teacherMessagesUrl(
+  teacherId: number,
+  opts: MessagesUrlOptions = {},
+): string {
+  return messagesUrl(`enseignants/${teacherId}`, opts);
+}
+
+export function teacherEmploiDuTempsUrl(teacherId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/P/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
+}
+
+export function teacherClassStudentsUrl(classId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/classes/${classId}/eleves.awp?verbe=get&v=${v}`;
+}
+
+export function teacherRoomsUrl(opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${v}`;
+}
+
+export function teacherNoteSettingsUrl(teacherId: number, opts: { version?: string } = {}): string {
+  const v = opts.version ?? DEFAULT_APP_VERSION;
+  return `${API_BASE}/${API_VERSION}/enseignants/${teacherId}/parametrages.awp?verbe=get&v=${v}`;
+}

@@ -17,6 +17,11 @@ import {
   studentProfileUrl,
   studentSessionsRdvUrl,
   studentVieScolaireUrl,
+  teacherClassStudentsUrl,
+  teacherEmploiDuTempsUrl,
+  teacherMessagesUrl,
+  teacherNoteSettingsUrl,
+  teacherRoomsUrl,
   API_BASE,
   API_VERSION,
   DEFAULT_APP_VERSION,
@@ -202,6 +207,50 @@ describe("studentEmploiDuTempsUrl", () => {
     const url = studentEmploiDuTempsUrl(1154, { version: "5.0.0" });
     expect(url).toBe(
       `${API_BASE}/${API_VERSION}/E/1154/emploidutemps.awp?verbe=get&v=5.0.0`,
+    );
+  });
+});
+
+describe("teacherMessagesUrl", () => {
+  it("returns the teacher messages endpoint", () => {
+    const url = teacherMessagesUrl(221);
+    expect(url).toContain(`/enseignants/221/messages.awp`);
+    expect(url).toContain(`v=${DEFAULT_APP_VERSION}`);
+  });
+});
+
+describe("teacherEmploiDuTempsUrl", () => {
+  it("returns the teacher timetable endpoint", () => {
+    const url = teacherEmploiDuTempsUrl(221);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/P/221/emploidutemps.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherClassStudentsUrl", () => {
+  it("returns the class students endpoint", () => {
+    const url = teacherClassStudentsUrl(42);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/classes/42/eleves.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherRoomsUrl", () => {
+  it("returns the rooms endpoint", () => {
+    const url = teacherRoomsUrl();
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/salles.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
+    );
+  });
+});
+
+describe("teacherNoteSettingsUrl", () => {
+  it("returns the note settings endpoint", () => {
+    const url = teacherNoteSettingsUrl(221);
+    expect(url).toBe(
+      `${API_BASE}/${API_VERSION}/enseignants/221/parametrages.awp?verbe=get&v=${DEFAULT_APP_VERSION}`,
     );
   });
 });

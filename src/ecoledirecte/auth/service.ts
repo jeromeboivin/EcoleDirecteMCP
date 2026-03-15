@@ -18,6 +18,7 @@ import type {
   AuthState,
   LoginFactor,
   LoginPayload,
+  ProfileName,
   StoredCredentials,
   StoredSession,
   AccountInfo,
@@ -32,6 +33,8 @@ export class AuthService {
   private loginInFlight: Promise<AuthState> | undefined;
   /** Per-account token cache — avoids redundant renewToken API calls. */
   private accountTokens = new Map<number, string>();
+  /** Active named auth profile (undefined = legacy single-profile mode). */
+  private activeProfile: ProfileName | undefined;
 
   constructor(
     private readonly http: EdHttpClient,
@@ -42,11 +45,41 @@ export class AuthService {
     return this.state;
   }
 
+  getActiveProfile(): ProfileName | undefined {
+    return this.activeProfile;
+  }
+
+  async setActiveProfile(profile: ProfileName | undefined): Promise<void> {
+    if (profile === this.activeProfile) return;
+
+    // Clear current in-memory state when switching profiles
+    this.state = { status: "logged-out" };
+    this.pendingPayload = undefined;
+    this.loginGtk = undefined;
+    this.clearAccountTokens();
+    this.http.clearAuth();
+
+    this.activeProfile = profile;
+
+    // Persist the active profile in the index
+    const index = await this.store.loadProfileIndex();
+    index.active = profile;
+    if (profile && !index.profiles.includes(profile)) {
+      index.profiles.push(profile);
+    }
+    await this.store.saveProfileIndex(index);
+  }
+
+  async listProfiles(): Promise<{ active?: ProfileName; profiles: ProfileName[] }> {
+    const index = await this.store.loadProfileIndex();
+    return { active: this.activeProfile ?? index.active, profiles: index.profiles };
+  }
+
   // ── Direct login ─────────────────────────────────────────────
 
   async loginFromStore(): Promise<AuthState> {
     try {
-      const creds = await this.store.loadCredentials();
+      const creds = await this.store.loadCredentials(this.activeProfile);
       if (!creds) {
         this.state = {
           status: "error",
@@ -295,7 +328,8 @@ export class AuthService {
       token: session.token,
       accounts: session.accounts,
     };
-    await this.store.saveSession(session);
+    await this.store.saveSession(session, this.activeProfile);
+    await this.ensureProfileIndexed();
 
     // Validate the imported session against the live API
     return this.validateSession();
@@ -345,12 +379,12 @@ export class AuthService {
         return this.state;
       }
 
-      await this.store.clearSession();
+      await this.store.clearSession(this.activeProfile);
       this.http.clearAuth();
       this.clearAccountTokens();
 
       // Try saved credentials as fallback
-      const creds = await this.store.loadCredentials();
+      const creds = await this.store.loadCredentials(this.activeProfile);
       if (creds) {
         return this.login(creds.identifiant, creds.motdepasse, creds.fa);
       }
@@ -473,7 +507,13 @@ export class AuthService {
 
   async restore(): Promise<AuthState> {
     try {
-      const session = await this.store.loadSession();
+      // Restore active profile from index
+      const index = await this.store.loadProfileIndex();
+      if (index.active && !this.activeProfile) {
+        this.activeProfile = index.active;
+      }
+
+      const session = await this.store.loadSession(this.activeProfile);
       if (session) {
         this.http.loadCookies(session.cookies);
         if (session.xGtk) this.http.setGtk(session.xGtk);
@@ -498,7 +538,7 @@ export class AuthService {
         return this.validateSession();
       }
 
-      const creds = await this.store.loadCredentials();
+      const creds = await this.store.loadCredentials(this.activeProfile);
       if (creds) {
         return this.login(creds.identifiant, creds.motdepasse, creds.fa);
       }
@@ -522,7 +562,7 @@ export class AuthService {
     this.loginGtk = undefined;
     this.clearAccountTokens();
     this.http.clearAuth();
-    await this.store.clearSession();
+    await this.store.clearSession(this.activeProfile);
     return this.state;
   }
 
@@ -532,7 +572,7 @@ export class AuthService {
     this.loginGtk = undefined;
     this.clearAccountTokens();
     this.http.clearAuth();
-    await this.store.clearAll();
+    await this.store.clearAll(this.activeProfile);
     return this.state;
   }
 
@@ -610,7 +650,8 @@ export class AuthService {
     this.pendingPayload = undefined;
     this.loginGtk = undefined;
     await this.persistSession(token, accounts);
-    await this.store.saveCredentials(creds);
+    await this.store.saveCredentials(creds, this.activeProfile);
+    await this.ensureProfileIndexed();
     return this.state;
   }
 
@@ -645,7 +686,18 @@ export class AuthService {
       version: this.http.version,
       savedAt: new Date().toISOString(),
     };
-    await this.store.saveSession(session);
+    await this.store.saveSession(session, this.activeProfile);
+  }
+
+  /** Ensure the active profile is recorded in the profile index. */
+  private async ensureProfileIndexed(): Promise<void> {
+    if (!this.activeProfile) return;
+    const index = await this.store.loadProfileIndex();
+    if (!index.profiles.includes(this.activeProfile)) {
+      index.profiles.push(this.activeProfile);
+    }
+    index.active = this.activeProfile;
+    await this.store.saveProfileIndex(index);
   }
 }
 
@@ -723,6 +775,12 @@ function normalizeAccount(account: unknown): AccountInfo | undefined {
     ? profile.eleves.flatMap((student) => normalizeStudent(student))
     : undefined;
 
+  // Teacher metadata: classes, groups, subjects, modules
+  const classes = normalizeTeacherClasses(profile);
+  const groups = normalizeTeacherGroups(profile);
+  const subjects = normalizeTeacherSubjects(profile);
+  const modules = normalizeTeacherModules(candidate);
+
   return {
     id: candidate.id,
     type: candidate.typeCompte,
@@ -732,6 +790,10 @@ function normalizeAccount(account: unknown): AccountInfo | undefined {
     ...(typeof candidate.main === "boolean" ? { main: candidate.main } : {}),
     ...(typeof candidate.current === "boolean" ? { current: candidate.current } : {}),
     ...(students && students.length > 0 ? { students } : {}),
+    ...(classes && classes.length > 0 ? { classes } : {}),
+    ...(groups && groups.length > 0 ? { groups } : {}),
+    ...(subjects && subjects.length > 0 ? { subjects } : {}),
+    ...(modules && modules.length > 0 ? { modules } : {}),
   };
 }
 
@@ -797,8 +859,72 @@ function mergeAccountsAfterSwitch(accounts: AccountInfo[], body: RawApiResponse)
       ...(update.students && update.students.length > 0 ? { students: update.students } : {}),
       // Preserve establishment if fresh data has it
       ...(update.establishment ? { establishment: update.establishment } : {}),
+      // Preserve teacher metadata if fresh data has it
+      ...(update.classes && update.classes.length > 0 ? { classes: update.classes } : {}),
+      ...(update.groups && update.groups.length > 0 ? { groups: update.groups } : {}),
+      ...(update.subjects && update.subjects.length > 0 ? { subjects: update.subjects } : {}),
+      ...(update.modules && update.modules.length > 0 ? { modules: update.modules } : {}),
     };
   });
+}
+
+// ── Teacher metadata normalization ─────────────────────────────
+
+import type { TeacherClassInfo, TeacherGroupInfo, TeacherSubjectInfo } from "./types.js";
+
+function normalizeTeacherClasses(profile: Record<string, unknown> | undefined): TeacherClassInfo[] | undefined {
+  const classes = Array.isArray(profile?.classes) ? profile.classes : [];
+  if (classes.length === 0) return undefined;
+  return classes.flatMap((entry) => {
+    const c = entry as Record<string, unknown>;
+    if (typeof c.id !== "number") return [];
+    return [{
+      id: c.id,
+      ...(typeof c.code === "string" ? { code: c.code } : {}),
+      ...(typeof c.libelle === "string" ? { label: c.libelle } : {}),
+    }];
+  });
+}
+
+function normalizeTeacherGroups(profile: Record<string, unknown> | undefined): TeacherGroupInfo[] | undefined {
+  const groups = Array.isArray(profile?.groupesNiveau) ? profile.groupesNiveau : [];
+  if (groups.length === 0) return undefined;
+  return groups.flatMap((entry) => {
+    const g = entry as Record<string, unknown>;
+    if (typeof g.id !== "number") return [];
+    return [{
+      id: g.id,
+      ...(typeof g.code === "string" ? { code: g.code } : {}),
+      ...(typeof g.libelle === "string" ? { label: g.libelle } : {}),
+      ...(typeof g.idClasse === "number" ? { classId: g.idClasse } : {}),
+      ...(typeof g.codeMatiere === "string" ? { subjectCode: g.codeMatiere } : {}),
+    }];
+  });
+}
+
+function normalizeTeacherSubjects(profile: Record<string, unknown> | undefined): TeacherSubjectInfo[] | undefined {
+  const matieres = Array.isArray(profile?.matieres) ? profile.matieres : [];
+  if (matieres.length === 0) return undefined;
+  return matieres.flatMap((entry) => {
+    const m = entry as Record<string, unknown>;
+    if (typeof m.code !== "string" || !m.code.trim()) return [];
+    return [{
+      code: m.code.trim(),
+      ...(typeof m.libelle === "string" ? { label: m.libelle } : {}),
+    }];
+  });
+}
+
+function normalizeTeacherModules(candidate: Record<string, unknown>): string[] | undefined {
+  const modules = Array.isArray(candidate.modules) ? candidate.modules : [];
+  if (modules.length === 0) return undefined;
+  const codes = modules.flatMap((entry) => {
+    const m = entry as Record<string, unknown>;
+    if (typeof m.code !== "string" || !m.code.trim()) return [];
+    if ((m as Record<string, unknown>).enable !== true) return [];
+    return [m.code.trim()];
+  });
+  return codes.length > 0 ? codes : undefined;
 }
 
 function decodeBase64String(value: unknown): string {

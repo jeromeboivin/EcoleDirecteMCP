@@ -67,6 +67,33 @@ export interface AccountInfo {
   main?: boolean;
   current?: boolean;
   students?: StudentInfo[];
+  /** Teacher-specific: classes taught by this account. */
+  classes?: TeacherClassInfo[];
+  /** Teacher-specific: subject groups taught by this account. */
+  groups?: TeacherGroupInfo[];
+  /** Teacher-specific: subjects taught by this account. */
+  subjects?: TeacherSubjectInfo[];
+  /** Teacher-specific: enabled module codes (e.g. "MESSAGERIE", "NOTES"). */
+  modules?: string[];
+}
+
+export interface TeacherClassInfo {
+  id: number;
+  code?: string;
+  label?: string;
+}
+
+export interface TeacherGroupInfo {
+  id: number;
+  code?: string;
+  label?: string;
+  classId?: number;
+  subjectCode?: string;
+}
+
+export interface TeacherSubjectInfo {
+  code: string;
+  label?: string;
 }
 
 export interface StudentInfo {
@@ -115,4 +142,16 @@ export interface LoginPayload {
   fa: LoginFactor[];
   /** Accept charter if required by a previous attempt. */
   acceptationCharte?: boolean;
+}
+
+/**
+ * Named auth profile — isolates credentials, session, and token caches
+ * so separate logins (e.g. parent vs teacher) can coexist.
+ */
+export type ProfileName = string;
+
+/** Persisted profile index that tracks the active profile and known profiles. */
+export interface StoredProfileIndex {
+  active?: ProfileName;
+  profiles: ProfileName[];
 }

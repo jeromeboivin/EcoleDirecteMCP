@@ -9,6 +9,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Secure identity question** — handles the non-TOTP double-auth flow that asks the user to answer a verification question, then replays the login with the returned challenge proof.
 - **Session import** — import an existing session from a browser-export JSON file, validated against the live API.
 - **Session validation** — imported and restored sessions are probed through `rdt/sondages.awp` before being treated as authenticated; stale sessions are automatically cleared and fall back to saved credentials when available.
+- **Named auth profiles** — manage separate credential sets (e.g. `parent` and `teacher`) under `~/.ecoledirecte/profiles/<name>/`. All auth tools accept an optional `profile` parameter to switch contexts.
 - **Multi-family context switching** — when a session includes browser account metadata, data tools automatically renew the live token context with `renewtoken.awp` before requesting another family account.
 - **Family messagerie** — lists family-level messages through the authenticated `familles/{id}/messages.awp` route.
 - **Family message detail** — opens a selected family message read-only, decodes its content, and mirrors the web UI behavior that may mark it as read.
@@ -25,6 +26,12 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Emploi du temps** — returns timetable events grouped by day through the authenticated `E/{id}/emploidutemps.awp` route.
 - **Family documents** — returns family-level documents grouped by category (factures, notes, vie scolaire, administratifs, inscriptions, entreprises) through the authenticated `familledocuments.awp` route.
 - **Family invoices** — lists family-level invoices and signature documents through the authenticated `factures.awp` route.
+- **Teacher messagerie** — lists teacher-level messages through the authenticated `enseignants/{id}/messages.awp` route.
+- **Teacher emploi du temps** — returns teacher timetable events for a date range through the authenticated `P/{id}/emploidutemps.awp` route.
+- **Teacher classes** — lists classes assigned to the teacher from account metadata.
+- **Teacher class students** — returns the roster of students in a specific class through the authenticated `classes/{classId}/eleves.awp` route.
+- **Teacher rooms** — lists available rooms through the authenticated `salles.awp` route.
+- **Teacher note settings** — returns grading configuration through the authenticated `enseignants/{id}/parametrages.awp` route.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -99,16 +106,42 @@ To use a custom path:
 }
 ```
 
+### Named profiles
+
+When you need separate credentials for different account types (e.g. a parent account and a teacher account), use the `profile` parameter on auth tools:
+
+```
+login { "profile": "parent" }    → uses ~/.ecoledirecte/profiles/parent/credentials.json
+login { "profile": "teacher" }   → uses ~/.ecoledirecte/profiles/teacher/credentials.json
+```
+
+Each profile stores its own `credentials.json` and `session.json` under `~/.ecoledirecte/profiles/<name>/`. The active profile is tracked in `~/.ecoledirecte/profiles.json`.
+
+Create profile credentials:
+
+```bash
+mkdir -p ~/.ecoledirecte/profiles/teacher
+cat > ~/.ecoledirecte/profiles/teacher/credentials.json <<'EOF'
+{
+  "identifiant": "teacher-username",
+  "motdepasse": "teacher-password"
+}
+EOF
+chmod 600 ~/.ecoledirecte/profiles/teacher/credentials.json
+```
+
+When no profile is specified, tools use the legacy default paths (`~/.ecoledirecte/credentials.json` and `session.json`).
+
 ## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `login` | Authenticate using credentials from the configured file (see below) |
+| `login` | Authenticate using credentials from the configured file. Optional `profile` to select a named credential set. |
 | `submit_totp` | Complete 2FA with a TOTP code |
 | `submit_doubleauth` | Answer the identity-verification question shown after login |
-| `import_session` | Load a session from a browser-export JSON file and validate it |
-| `auth_status` | Check current authentication state (read-only) |
-| `validate_session` | Validate the current session against the live API |
+| `import_session` | Load a session from a browser-export JSON file and validate it. Optional `profile`. |
+| `auth_status` | Check current authentication state and active profile (read-only) |
+| `validate_session` | Validate the current session against the live API. Optional `profile`. |
 | `list_family_messages` | List family-level messages for the authenticated family account |
 | `get_family_message_detail` | Get the full content of a selected family message (may mark it as read) |
 | `list_student_messages` | List student-level messages for one or more students (sequential) |
@@ -124,8 +157,14 @@ To use a custom path:
 | `get_student_emploi_du_temps` | Get timetable events grouped by day for one or more students |
 | `get_family_documents` | Get family-level documents grouped by category |
 | `list_family_invoices` | List family-level invoices and signature documents |
-| `logout` | Clear the session (keeps saved credentials) |
-| `logout_full` | Clear both session and saved credentials |
+| `list_teacher_messages` | List messages for the authenticated teacher account |
+| `get_teacher_emploi_du_temps` | Get teacher timetable for a date range (`dateDebut`, `dateFin`) |
+| `list_teacher_classes` | List classes assigned to the teacher (from account metadata) |
+| `get_teacher_class_students` | Get the student roster for a class (`classId`) |
+| `list_teacher_rooms` | List available rooms for the teacher's establishment |
+| `get_teacher_note_settings` | Get grading configuration (components, homework types, establishment parameters) |
+| `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
+| `logout_full` | Clear both session and saved credentials. Optional `profile`. |
 
 If multiple family accounts or students are available, pass `accountId` and/or `studentId`. When the imported or authenticated session includes browser account metadata such as `idLogin` and `current`, the server automatically switches to the requested family context before calling the private API. The tool error payload lists the available choices when selection is ambiguous.
 
@@ -215,6 +254,11 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Student emploi du temps** → `POST /v3/E/{studentId}/emploidutemps.awp?verbe=get&v=4.96.3`
 - **Family documents** → `POST /v3/familledocuments.awp?archive=&verbe=get&v=4.96.3`
 - **Family invoices** → `POST /v3/factures.awp?verbe=get&v=4.96.3`
+- **Teacher messages** → `POST /v3/enseignants/{teacherId}/messages.awp?force=false&typeRecuperation=received&...&verbe=get&v=4.96.3`
+- **Teacher emploi du temps** → `POST /v3/P/{teacherId}/emploidutemps.awp?verbe=get&v=4.96.3` with `data={"dateDebut":"YYYY-MM-DD","dateFin":"YYYY-MM-DD","avecTpiTemp":false}`
+- **Teacher class students** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3`
+- **Teacher rooms** → `POST /v3/salles.awp?verbe=get&v=4.96.3`
+- **Teacher note settings** → `POST /v3/enseignants/{teacherId}/parametrages.awp?verbe=get&v=4.96.3`
 - Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
 
 ## Explicitly Out of Scope (v1)
@@ -239,8 +283,8 @@ LOG_LEVEL=debug   # Set for verbose logging (debug|info|warn|error)
 ```
 src/
 ├── index.ts                          # stdio entrypoint
-├── server/tools.ts                   # Auth MCP tool definitions
-├── server/dataTools.ts               # Messaging, notes, homework, school life, timetable, documents, and invoices MCP tool definitions
+├── server/tools.ts                   # Auth MCP tool definitions (with profile support)
+├── server/dataTools.ts               # Family, student, and teacher MCP tool definitions
 └── ecoledirecte/
     ├── logging.ts                    # Structured logging with redaction
     ├── api/
@@ -256,15 +300,18 @@ src/
     │   ├── vieDeLaClasse.ts          # Class-life response normalization
     │   ├── emploiDuTemps.ts          # Timetable response normalization
     │   ├── familyDocuments.ts        # Family documents response normalization
-    │   └── familyInvoices.ts         # Family invoices response normalization
+    │   ├── familyInvoices.ts         # Family invoices response normalization
+    │   ├── teacherClassStudents.ts   # Teacher class roster normalization
+    │   ├── teacherRooms.ts           # Teacher rooms normalization
+    │   └── teacherNoteSettings.ts    # Teacher grading config normalization
     ├── auth/
-    │   ├── types.ts                  # Auth state machine types
-    │   ├── service.ts                # Login/TOTP/restore orchestration
-    │   ├── store.ts                  # Persistence interface
-    │   ├── fileStore.ts              # File-system persistence adapter
+    │   ├── types.ts                  # Auth state machine types (incl. profile & teacher metadata)
+    │   ├── service.ts                # Login/TOTP/restore/profile orchestration
+    │   ├── store.ts                  # Persistence interface (profile-aware)
+    │   ├── fileStore.ts              # File-system persistence adapter (profile-aware)
     │   └── sessionImport.ts          # Browser-export file parser
     ├── data/
-    │   └── service.ts                # Authenticated student and family data access
+    │   └── service.ts                # Authenticated student, family, and teacher data access
     └── http/
         └── client.ts                 # Cookie-aware HTTP client
 ```

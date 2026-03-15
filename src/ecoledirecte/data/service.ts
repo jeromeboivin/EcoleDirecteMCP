@@ -12,6 +12,11 @@ import {
   studentNotesUrl,
   studentProfileUrl,
   studentSessionsRdvUrl,
+  teacherClassStudentsUrl,
+  teacherEmploiDuTempsUrl,
+  teacherMessagesUrl,
+  teacherNoteSettingsUrl,
+  teacherRoomsUrl,
   telechargementUrl,
   studentVieScolaireUrl,
   type MessageMailbox,
@@ -65,6 +70,18 @@ import {
   normalizeVieScolaireResponse,
   type VieScolairePayload,
 } from "../api/vieScolaire.js";
+import {
+  normalizeTeacherClassStudentsResponse,
+  type TeacherClassStudentsPayload,
+} from "../api/teacherClassStudents.js";
+import {
+  normalizeTeacherRoomsResponse,
+  type TeacherRoomsPayload,
+} from "../api/teacherRooms.js";
+import {
+  normalizeTeacherNoteSettingsResponse,
+  type TeacherNoteSettingsPayload,
+} from "../api/teacherNoteSettings.js";
 import { ApiCode, type RawApiResponse } from "../api/normalize.js";
 import type { AuthService } from "../auth/service.js";
 import type { AccountInfo, AuthState, StudentInfo } from "../auth/types.js";
@@ -168,6 +185,31 @@ export interface FamilyInvoicesQuery {
   accountId?: number;
 }
 
+// ── Teacher queries ────────────────────────────────────────────
+
+export interface TeacherQuery {
+  accountId?: number;
+}
+
+export interface TeacherMessageQuery extends TeacherQuery {
+  mailbox?: MessageMailbox;
+  folderId?: number;
+  query?: string;
+  page?: number;
+  itemsPerPage?: number;
+}
+
+export interface TeacherEmploiDuTempsQuery extends TeacherQuery {
+  dateDebut?: string;
+  dateFin?: string;
+}
+
+export interface TeacherClassStudentsQuery extends TeacherQuery {
+  classId: number;
+}
+
+export interface TeacherNoteSettingsQuery extends TeacherQuery {}
+
 export interface FamilyChoice {
   id: number;
   name: string;
@@ -193,12 +235,21 @@ export interface ClassChoice {
   code?: string;
 }
 
+export interface TeacherChoice {
+  id: number;
+  name: string;
+  establishment?: string;
+  main?: boolean;
+  current?: boolean;
+}
+
 export interface DataFailure {
   ok: false;
   error: string;
   recoverable: boolean;
   availableFamilies?: FamilyChoice[];
   availableStudents?: StudentChoice[];
+  availableTeachers?: TeacherChoice[];
 }
 
 export interface FamilyMessagesResult extends MessagesPayload {
@@ -322,6 +373,40 @@ export interface FamilyDocumentDownloadResult {
 export interface FamilyInvoicesResult extends FamilyInvoicesPayload {
   scope: "family";
   family: FamilyChoice;
+}
+
+// ── Teacher result types ───────────────────────────────────────
+
+export interface TeacherMessagesResult extends MessagesPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  mailbox: MessageMailbox;
+  page: number;
+  itemsPerPage: number;
+  query: string;
+}
+
+export interface TeacherEmploiDuTempsResult extends EmploiDuTempsPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  dateDebut?: string;
+  dateFin?: string;
+}
+
+export interface TeacherClassStudentsResult extends TeacherClassStudentsPayload {
+  scope: "class";
+  teacher: TeacherChoice;
+  class: ClassChoice;
+}
+
+export interface TeacherRoomsResult extends TeacherRoomsPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
+}
+
+export interface TeacherNoteSettingsResult extends TeacherNoteSettingsPayload {
+  scope: "teacher";
+  teacher: TeacherChoice;
 }
 
 export type DataResult<T> = { ok: true; data: T } | DataFailure;
@@ -1036,6 +1121,204 @@ export class EdDataService {
     };
   }
 
+  // ── Teacher data methods ────────────────────────────────────
+
+  async listTeacherMessages(
+    query: TeacherMessageQuery = {},
+  ): Promise<DataResult<TeacherMessagesResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const mailbox = query.mailbox ?? "received";
+    const page = query.page ?? 0;
+    const itemsPerPage = query.itemsPerPage ?? 100;
+    const search = query.query ?? "";
+    const response = await this.fetchData(
+      teacherMessagesUrl(teacher.data.id, {
+        mailbox,
+        folderId: query.folderId,
+        query: search,
+        page,
+        itemsPerPage,
+        version: this.http.version,
+      }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeMessagesResponse(response.data, mailbox);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected teacher messages response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        mailbox,
+        page,
+        itemsPerPage,
+        query: search,
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getTeacherEmploiDuTemps(
+    query: TeacherEmploiDuTempsQuery = {},
+  ): Promise<DataResult<TeacherEmploiDuTempsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const body: Record<string, unknown> = {};
+    if (query.dateDebut) body.dateDebut = query.dateDebut;
+    if (query.dateFin) body.dateFin = query.dateFin;
+    body.avecTrous = false;
+
+    const response = await this.fetchData(
+      teacherEmploiDuTempsUrl(teacher.data.id, { version: this.http.version }),
+      body,
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeEmploiDuTempsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected teacher emploi du temps response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        ...normalized.data,
+        ...(query.dateDebut ? { dateDebut: query.dateDebut } : {}),
+        ...(query.dateFin ? { dateFin: query.dateFin } : {}),
+      },
+    };
+  }
+
+  async getTeacherClassStudents(
+    query: TeacherClassStudentsQuery,
+  ): Promise<DataResult<TeacherClassStudentsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    if (!Number.isInteger(query.classId) || query.classId <= 0) {
+      return this.failure("classId must be a positive integer.", true);
+    }
+
+    const response = await this.fetchData(
+      teacherClassStudentsUrl(query.classId, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherClassStudentsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected class students response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    // Resolve class metadata from teacher's known classes
+    const classInfo = teacher.data.classes?.find(c => c.id === query.classId);
+
+    return {
+      ok: true,
+      data: {
+        scope: "class",
+        teacher: summarizeTeacher(teacher.data),
+        class: {
+          id: query.classId,
+          ...(classInfo?.label ? { name: classInfo.label } : {}),
+          ...(classInfo?.code ? { code: classInfo.code } : {}),
+        },
+        ...normalized.data,
+      },
+    };
+  }
+
+  async listTeacherRooms(
+    query: TeacherQuery = {},
+  ): Promise<DataResult<TeacherRoomsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const response = await this.fetchData(
+      teacherRoomsUrl({ version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherRoomsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected rooms response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        ...normalized.data,
+      },
+    };
+  }
+
+  async getTeacherNoteSettings(
+    query: TeacherNoteSettingsQuery = {},
+  ): Promise<DataResult<TeacherNoteSettingsResult>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    const response = await this.fetchData(
+      teacherNoteSettingsUrl(teacher.data.id, { version: this.http.version }),
+    );
+    if (!response.ok) return response;
+
+    const normalized = normalizeTeacherNoteSettingsResponse(response.data);
+    if (!normalized.ok || !normalized.data) {
+      return this.failure(
+        normalized.message ?? `Unexpected note settings response code ${normalized.code}`,
+        true,
+      );
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        ...normalized.data,
+      },
+    };
+  }
+
+  async listTeacherClasses(
+    query: TeacherQuery = {},
+  ): Promise<DataResult<{ scope: "teacher"; teacher: TeacherChoice; classes: AccountInfo["classes"] }>> {
+    const teacher = await this.ensureTeacherSelection(query.accountId);
+    if (!teacher.ok) return teacher;
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: summarizeTeacher(teacher.data),
+        classes: teacher.data.classes ?? [],
+      },
+    };
+  }
+
   async listAllStudents(): Promise<DataResult<StudentChoice[]>> {
     const authState = await this.ensureReadyAuth();
     if (!authState.ok) return authState;
@@ -1099,6 +1382,25 @@ export class EdDataService {
     if (!family.ok) return family;
 
     const context = await this.ensureAccountContext(family.data.id);
+    if (!context.ok) return context;
+    return { ok: true, data: context.data.account };
+  }
+
+  private async ensureTeacherSelection(accountId?: number): Promise<DataResult<AccountInfo>> {
+    const authState = await this.ensureReadyAuth();
+    if (!authState.ok) return authState;
+
+    if (authState.accounts.length === 0) {
+      return this.failure(
+        "Authenticated session has no account metadata. Re-authenticate or import a session that includes accounts.",
+        false,
+      );
+    }
+
+    const teacher = this.resolveTeacher(authState.accounts, accountId);
+    if (!teacher.ok) return teacher;
+
+    const context = await this.ensureAccountContext(teacher.data.id);
     if (!context.ok) return context;
     return { ok: true, data: context.data.account };
   }
@@ -1184,6 +1486,45 @@ export class EdDataService {
       "Multiple family accounts are available. Retry with accountId.",
       true,
       { availableFamilies: accounts.map((account) => summarizeFamily(account)) },
+    );
+  }
+
+  private resolveTeacher(accounts: AccountInfo[], accountId?: number): DataResult<AccountInfo> {
+    // Teacher accounts have type "P"
+    const teachers = accounts.filter((account) => account.type === "P");
+
+    if (accountId !== undefined) {
+      const selected = teachers.find((account) => account.id === accountId);
+      if (selected) return { ok: true, data: selected };
+      // Also try all accounts in case the caller knows the exact id
+      const any = accounts.find((account) => account.id === accountId);
+      if (any) return { ok: true, data: any };
+      return this.failure(
+        `Unknown accountId ${accountId}.`,
+        true,
+        { availableTeachers: teachers.map((account) => summarizeTeacher(account)) },
+      );
+    }
+
+    if (teachers.length === 1) return { ok: true, data: teachers[0] };
+    if (teachers.length === 0) {
+      return this.failure(
+        "No teacher account found. Authenticate with a teacher login or import a teacher session.",
+        false,
+        { availableTeachers: [] },
+      );
+    }
+
+    const current = teachers.filter((account) => account.current === true);
+    if (current.length === 1) return { ok: true, data: current[0] };
+
+    const main = teachers.filter((account) => account.main === true);
+    if (main.length === 1) return { ok: true, data: main[0] };
+
+    return this.failure(
+      "Multiple teacher accounts are available. Retry with accountId.",
+      true,
+      { availableTeachers: teachers.map((account) => summarizeTeacher(account)) },
     );
   }
 
@@ -1437,5 +1778,15 @@ function summarizeStudent(account: AccountInfo, student: StudentInfo): StudentCh
     ...(student.establishment ? { establishment: student.establishment } : {}),
     accountId: account.id,
     accountName: account.name,
+  };
+}
+
+function summarizeTeacher(account: AccountInfo): TeacherChoice {
+  return {
+    id: account.id,
+    name: account.name,
+    ...(account.establishment ? { establishment: account.establishment } : {}),
+    ...(account.main !== undefined ? { main: account.main } : {}),
+    ...(account.current !== undefined ? { current: account.current } : {}),
   };
 }

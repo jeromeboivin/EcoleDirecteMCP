@@ -27,6 +27,9 @@ function stubServer(): { handlers: Map<string, ToolHandler>; tool: (...args: unk
 function stubAuth(state: AuthState) {
   return {
     getState: () => state,
+    getActiveProfile: () => undefined as string | undefined,
+    setActiveProfile: vi.fn().mockResolvedValue(undefined),
+    listProfiles: vi.fn().mockResolvedValue({ profiles: [] }),
     login: vi.fn().mockResolvedValue(state),
     loginFromStore: vi.fn().mockResolvedValue(state),
     submitTotp: vi.fn().mockResolvedValue(state),

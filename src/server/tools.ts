@@ -12,12 +12,13 @@ export function registerTools(server: McpServer, auth: AuthService): void {
   // ── login ────────────────────────────────────────────────────
   server.tool(
     "login",
-    "Authenticate with EcoleDirecte using credentials stored in the configured credentials file (set ECOLEDIRECTE_CREDENTIALS_FILE or use the default ~/.ecoledirecte/credentials.json)",
-    {},
-    async () => {
+    "Authenticate with EcoleDirecte using credentials stored in the configured credentials file. Optionally specify a named profile (e.g. 'parent', 'teacher') to isolate credentials.",
+    { profile: z.string().optional() },
+    async ({ profile }) => {
       log("info", "login tool invoked");
+      if (profile) await auth.setActiveProfile(profile);
       const state = await auth.loginFromStore();
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 
@@ -29,7 +30,7 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     async ({ code }) => {
       log("info", "submit_totp tool invoked");
       const state = await auth.submitTotp(code);
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 
@@ -41,21 +42,22 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     async ({ choiceIndex }) => {
       log("info", "submit_doubleauth tool invoked");
       const state = await auth.submitDoubleAuthChoice(choiceIndex);
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 
   // ── import_session ───────────────────────────────────────────
   server.tool(
     "import_session",
-    "Import an existing session from a browser-export JSON file",
-    { filePath: z.string() },
-    async ({ filePath }) => {
+    "Import an existing session from a browser-export JSON file. Optionally specify a named profile to store the session under.",
+    { filePath: z.string(), profile: z.string().optional() },
+    async ({ filePath, profile }) => {
       log("info", "import_session tool invoked");
       try {
+        if (profile) await auth.setActiveProfile(profile);
         const session = await parseSessionFile(filePath);
         const state = await auth.importSession(session);
-        return toolResult(state);
+        return toolResult(state, auth.getActiveProfile());
       } catch (err) {
         return {
           content: [
@@ -71,51 +73,61 @@ export function registerTools(server: McpServer, auth: AuthService): void {
   );
 
   // ── auth_status ──────────────────────────────────────────────
-  server.tool("auth_status", "Get the current authentication state", {}, async () => {
-    return toolResult(auth.getState());
+  server.tool("auth_status", "Get the current authentication state and active profile", {}, async () => {
+    const profiles = await auth.listProfiles();
+    const profileInfo = profiles.profiles.length > 0
+      ? `\nProfiles: ${profiles.profiles.join(", ")}${profiles.active ? ` (active: ${profiles.active})` : ""}`
+      : "";
+    const result = toolResult(auth.getState(), auth.getActiveProfile());
+    result.content[0].text += profileInfo;
+    return result;
   });
 
   // ── logout ───────────────────────────────────────────────────
   server.tool(
     "logout",
-    "Clear the current session (keeps saved credentials)",
-    {},
-    async () => {
+    "Clear the current session (keeps saved credentials). Optionally specify a profile.",
+    { profile: z.string().optional() },
+    async ({ profile }) => {
       log("info", "logout tool invoked");
+      if (profile) await auth.setActiveProfile(profile);
       const state = await auth.logout();
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 
   // ── logout_full ──────────────────────────────────────────────
   server.tool(
     "logout_full",
-    "Clear both the current session and saved credentials",
-    {},
-    async () => {
+    "Clear both the current session and saved credentials. Optionally specify a profile.",
+    { profile: z.string().optional() },
+    async ({ profile }) => {
       log("info", "logout_full tool invoked");
+      if (profile) await auth.setActiveProfile(profile);
       const state = await auth.logoutFull();
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 
   // ── validate_session ────────────────────────────────────────
   server.tool(
     "validate_session",
-    "Validate the current session against the live API. Promotes an imported or restored session to authenticated, or clears it and falls back to saved credentials if stale.",
-    {},
-    async () => {
+    "Validate the current session against the live API. Optionally specify a profile.",
+    { profile: z.string().optional() },
+    async ({ profile }) => {
       log("info", "validate_session tool invoked");
+      if (profile) await auth.setActiveProfile(profile);
       const state = await auth.validateSession();
-      return toolResult(state);
+      return toolResult(state, auth.getActiveProfile());
     },
   );
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-function toolResult(state: ReturnType<AuthService["getState"]>) {
-  const text = formatState(state);
+function toolResult(state: ReturnType<AuthService["getState"]>, profile?: string) {
+  const prefix = profile ? `[profile: ${profile}] ` : "";
+  const text = prefix + formatState(state);
   const isError = state.status === "error";
   return { content: [{ type: "text" as const, text }], isError };
 }
@@ -149,7 +161,7 @@ function formatCurrentAccount(accounts: { name: string; establishment?: string; 
 }
 
 function formatAccountList(
-  accounts: { name: string; type: string; establishment?: string; current?: boolean; students?: { name: string; className?: string; establishment?: string }[] }[],
+  accounts: { name: string; type: string; establishment?: string; current?: boolean; students?: { name: string; className?: string; establishment?: string }[]; classes?: { id: number }[]; modules?: string[] }[],
 ): string {
   if (accounts.length === 0) return "none parsed";
   return accounts
@@ -164,6 +176,12 @@ function formatAccountList(
           return sl;
         });
         label += ` — students: ${studentLabels.join(", ")}`;
+      }
+      if (account.classes && account.classes.length > 0) {
+        label += ` — ${account.classes.length} class(es)`;
+      }
+      if (account.modules && account.modules.length > 0) {
+        label += ` — modules: ${account.modules.join(", ")}`;
       }
       return label;
     })
