@@ -33,6 +33,8 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Teacher rooms** — lists available rooms through the authenticated `salles.awp` route.
 - **Teacher note settings** — returns grading configuration through the authenticated `enseignants/{id}/parametrages.awp` route.
 - **Teacher gradebook catalog** — returns the full gradebook navigation model (establishments, classes, groups, periods, subjects, council dates, attendance grid) through the authenticated `niveauxListe.awp` route.
+- **Teacher gradebook notes** — returns the populated grade grid for a selected class or group, period, and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp` route.
+- **Teacher gradebook appreciations** — returns per-student appreciation content plus predefined appreciation templates for a selected class or group and subject through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp` and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -165,6 +167,8 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `list_teacher_rooms` | List available rooms for the teacher's establishment |
 | `get_teacher_note_settings` | Get grading configuration (components, homework types, establishment parameters) |
 | `get_teacher_gradebook_catalog` | Get the full gradebook navigation catalog (establishments, classes, groups, periods, subjects, council dates, attendance grid) |
+| `get_teacher_gradebook_notes` | Get the populated grade grid for a selected class or group, period, and subject |
+| `get_teacher_gradebook_appreciations` | Get teacher appreciation data plus predefined appreciation templates for a selected class or group and subject |
 | `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
 | `logout_full` | Clear both session and saved credentials. Optional `profile`. |
 
@@ -263,6 +267,9 @@ For multi-family accounts, prefer a browser-style export that preserves each acc
 - **Teacher class students** → `POST /v3/classes/{classId}/eleves.awp?verbe=get&v=4.96.3`
 - **Teacher rooms** → `POST /v3/salles.awp?verbe=get&v=4.96.3`
 - **Teacher note settings** → `POST /v3/enseignants/{teacherId}/parametrages.awp?verbe=get&v=4.96.3`
+- **Teacher gradebook notes** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/{periodCode}/matieres/{subjectCodeOrId}/notes.awp?verbe=get&v=4.96.3`
+- **Teacher gradebook appreciations** → `POST /v3/enseignants/{teacherId}/{typeEntity}/{entityId}/periodes/ALL/matieres/{subjectCodeOrId}/appreciations.awp?verbe=get&v=4.96.3`
+- **Teacher predefined appreciations** → `POST /v3/Enseignant/{teacherId}/{typeEntity}/{entityId}/appreciationsPredefinies.awp?verbe=get&v=4.96.3`
 - Except for the student profile route above, all data routes use the standard `data={}` form body and require the authenticated `X-Token` and `2FA-Token` headers.
 
 ## Explicitly Out of Scope (v1)
@@ -306,6 +313,8 @@ src/
     │   ├── familyDocuments.ts        # Family documents response normalization
     │   ├── familyInvoices.ts         # Family invoices response normalization
     │   ├── teacherClassStudents.ts   # Teacher class roster normalization
+    │   ├── teacherGradebookAppreciations.ts # Teacher appreciation normalization
+    │   ├── teacherGradebookNotes.ts  # Teacher grade-grid normalization
     │   ├── teacherRooms.ts           # Teacher rooms normalization
     │   └── teacherNoteSettings.ts    # Teacher grading config normalization
     ├── auth/
