@@ -102,6 +102,9 @@ export class AuthService {
   }
 
   async login(identifiant: string, motdepasse: string, persistedFa?: LoginFactor[]): Promise<AuthState> {
+    if (this.state.status === "doubleauth-required" || this.state.status === "totp-required") {
+      return this.state; // don't silently discard a pending challenge
+    }
     if (this.loginInFlight) return this.loginInFlight;
 
     const task = this.performLogin(identifiant, motdepasse, persistedFa);
