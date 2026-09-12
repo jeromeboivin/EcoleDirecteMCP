@@ -96,11 +96,11 @@ describe("parseSessionFile", () => {
     ]);
   });
 
-  it("defaults version to 4.96.3 when missing", async () => {
+  it("defaults version to 4.101.4 when missing", async () => {
     const file = join(dir, "session.json");
     await writeFile(file, JSON.stringify({ token: "t", cookies: {} }));
     const result = await parseSessionFile(file);
-    expect(result.version).toBe("4.96.3");
+    expect(result.version).toBe("4.101.4");
   });
 
   it("rejects a file without a token", async () => {

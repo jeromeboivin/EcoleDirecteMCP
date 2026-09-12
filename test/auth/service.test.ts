@@ -172,6 +172,9 @@ function makeHttp(responses: Response[]): EdHttpClient {
       gtk = value;
     }),
     getGtk: vi.fn().mockImplementation(() => gtk),
+    clearGtk: vi.fn().mockImplementation(() => {
+      gtk = undefined;
+    }),
     setToken: vi.fn().mockImplementation((value: string) => {
       token = value;
     }),
@@ -261,6 +264,58 @@ describe("AuthService", () => {
       }
     });
 
+    it("does not re-trigger a new login while a doubleauth challenge is pending (regression: stale choice index caused lockouts)", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-1",
+        }),
+        mockResponse(doubleAuthQuestionBody(), {
+          "X-Token": "intermediate-token",
+          "2FA-Token": "twofa-step-2",
+        }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      const first = await svc.login("user", "pass");
+      expect(first.status).toBe("doubleauth-required");
+      const callsAfterFirstLogin = (http.postForm as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      // A second login() call (e.g. an MCP host retrying) must NOT fetch a fresh
+      // challenge — that would silently replace `choices` with a new question/order
+      // while the caller is about to submit an index against the old one, and would
+      // burn an extra attempt against EcoleDirecte's own lockout counter.
+      const second = await svc.login("user", "pass");
+
+      expect(second).toBe(first);
+      expect(second.status).toBe("doubleauth-required");
+      if (second.status === "doubleauth-required" && first.status === "doubleauth-required") {
+        expect(second.choices).toBe(first.choices);
+      }
+      expect(http.get).toHaveBeenCalledTimes(1);
+      expect((http.postForm as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirstLogin);
+    });
+
+    it("does not re-trigger a new login while a TOTP challenge is pending", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(totpLoginBody(), { "X-Token": "intermediate-token" }),
+      ]);
+      const store = makeStore();
+      const svc = new AuthService(http, store);
+
+      const first = await svc.login("user", "pass");
+      expect(first.status).toBe("totp-required");
+      const callsAfterFirstLogin = (http.postForm as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      const second = await svc.login("user", "pass");
+
+      expect(second).toBe(first);
+      expect((http.postForm as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsAfterFirstLogin);
+    });
+
     it("returns a recoverable error when bootstrap fetch fails", async () => {
       const http = makeHttp([]);
       vi.mocked(http.get).mockRejectedValue(new TypeError("fetch failed"));
@@ -316,6 +371,8 @@ describe("AuthService", () => {
       const http = makeHttp([
         mockResponse({ code: 200, token: "", message: "" }),
         mockResponse(totpLoginBody(), { "X-Token": "intermediate-token" }),
+        // Second GTK bootstrap, run before the replay just as the web app does
+        mockResponse({ code: 200, token: "", message: "" }),
         mockResponse(successBody(), { "X-Token": "final-token" }),
       ]);
       const store = makeStore();
@@ -334,7 +391,6 @@ describe("AuthService", () => {
         expect.objectContaining({
           fa: [{ cv: "123456", cn: "" }],
         }),
-        { includeToken: false, includeTwoFaToken: false },
       );
       expect(store.saveCredentials).toHaveBeenCalledWith({ identifiant: "user", motdepasse: "pass" }, undefined);
     });
@@ -387,6 +443,8 @@ describe("AuthService", () => {
           "X-Token": "intermediate-token",
           "2FA-Token": "twofa-step-3",
         }),
+        // Second GTK bootstrap, run before the replay just as the web app does
+        mockResponse({ code: 200, token: "", message: "" }),
         mockResponse(successBody({ token: "cas-token" }), {
           "X-Token": "final-token",
           "2FA-Token": "twofa-final",
@@ -410,24 +468,102 @@ describe("AuthService", () => {
         motdepasse: "pass",
         fa: doubleAuthReplayFa(),
       }, undefined);
+      // The final POST must look exactly like the web app's: cn/cv both at the
+      // top level and inside `fa`, and no header suppression (X-Token and
+      // 2FA-Token go out, as the app's HTTP interceptor sends them).
       expect(http.postForm).toHaveBeenNthCalledWith(
         4,
         expect.stringContaining("/v3/login.awp?v=4.96.3"),
-        expect.objectContaining({
+        {
+          identifiant: "user",
+          motdepasse: "pass",
+          isReLogin: false,
+          cn: "cn-token",
+          cv: "cv-token",
+          uuid: "",
           fa: doubleAuthReplayFa(),
-        }),
-        { includeToken: false, includeTwoFaToken: false },
+        },
       );
-
-      const finalLoginPayload = vi.mocked(http.postForm).mock.calls[3]?.[1] as Record<string, unknown>;
-      expect(finalLoginPayload).not.toHaveProperty("cn");
-      expect(finalLoginPayload).not.toHaveProperty("cv");
       expect(http.postForm).toHaveBeenNthCalledWith(
         3,
         expect.stringContaining("/v3/connexion/doubleauth.awp?verbe=post&v=4.96.3"),
         { choix: Buffer.from("2012").toString("base64") },
         { includeGtk: false },
       );
+    });
+
+    it("surfaces the next question when the final login answers 250 again", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthQuestionBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthAnswerBody(), { "X-Token": "intermediate-token" }),
+        // Second GTK bootstrap before the replay
+        mockResponse({ code: 200, token: "", message: "" }),
+        // Final login asks for a second factor instead of authenticating
+        mockResponse(doubleAuthLoginBody(), { "X-Token": "intermediate-token" }),
+        // Follow-up question fetched for the caller
+        mockResponse(
+          {
+            code: ApiCode.OK,
+            token: "",
+            message: "",
+            data: {
+              question: Buffer.from("Quel est le prenom du cadet ?").toString("base64"),
+              propositions: [
+                Buffer.from("Antonin").toString("base64"),
+                Buffer.from("Jules").toString("base64"),
+              ],
+            },
+          },
+          { "X-Token": "intermediate-token" },
+        ),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result.status).toBe("doubleauth-required");
+      if (result.status === "doubleauth-required") {
+        expect(result.question).toBe("Quel est le prenom du cadet ?");
+        expect(result.choices.map((c) => c.label)).toEqual(["Antonin", "Jules"]);
+      }
+    });
+
+    it("carries every answered factor in fa across chained questions", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthQuestionBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthAnswerBody(), { "X-Token": "intermediate-token" }),
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(doubleAuthLoginBody(), { "X-Token": "intermediate-token" }),
+        mockResponse(doubleAuthQuestionBody(), { "X-Token": "intermediate-token" }),
+        // Second answer returns a DIFFERENT cn/cv pair
+        mockResponse(
+          { code: ApiCode.OK, token: "", message: "", data: { cn: "cn-two", cv: "cv-two" } },
+          { "X-Token": "intermediate-token" },
+        ),
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "final-token" }),
+      ]);
+      const svc = new AuthService(http, makeStore());
+
+      await svc.login("user", "pass");
+      await svc.submitDoubleAuthChoice(2);
+      const result = await svc.submitDoubleAuthChoice(2);
+
+      expect(result.status).toBe("authenticated");
+      const secondReplay = vi.mocked(http.postForm).mock.calls.at(-1)?.[1] as Record<string, unknown>;
+      expect(secondReplay).toMatchObject({
+        cn: "cn-two",
+        cv: "cv-two",
+        fa: [
+          { cn: "cn-token", cv: "cv-token", uniq: false },
+          { cn: "cn-two", cv: "cv-two", uniq: false },
+        ],
+      });
     });
 
     it("returns an error for an invalid choice index", async () => {
@@ -513,7 +649,7 @@ describe("AuthService", () => {
 
       expect(result).toEqual({
         status: "error",
-        message: "Identity verification failed",
+        message: "Identity verification failed — the challenge answer was rejected (code 200)",
         recoverable: true,
       });
     });
@@ -547,16 +683,15 @@ describe("AuthService", () => {
       });
     });
 
-    it("preserves the login GTK when doubleauth responses include a different X-GTK", async () => {
+    it("re-runs the GTK bootstrap before the final login instead of replaying a stale X-GTK", async () => {
       const http = makeHttp([
         // Bootstrap — sets initial GTK
         mockResponse({ code: 200, token: "", message: "" }, { "X-GTK": "bootstrap-gtk" }),
-        // Initial login — preserves GTK
         mockResponse(doubleAuthLoginBody(), {
           "X-Token": "intermediate-token",
           "2FA-Token": "twofa-step-1",
         }),
-        // Challenge GET — returns a DIFFERENT X-GTK that should not corrupt final login
+        // Challenge GET — returns a DIFFERENT X-GTK that must not be pinned
         mockResponse(doubleAuthQuestionBody(), {
           "X-Token": "intermediate-token",
           "2FA-Token": "twofa-step-2",
@@ -567,6 +702,8 @@ describe("AuthService", () => {
           "X-Token": "intermediate-token",
           "2FA-Token": "twofa-step-3",
         }),
+        // Second GTK bootstrap
+        mockResponse({ code: 200, token: "", message: "" }, { "X-GTK": "replay-gtk" }),
         // Final login replay
         mockResponse(successBody({ token: "cas-token" }), {
           "X-Token": "final-token",
@@ -580,8 +717,12 @@ describe("AuthService", () => {
       const result = await svc.submitDoubleAuthChoice(2);
 
       expect(result.status).toBe("authenticated");
-      // Verify the GTK was restored before the final login
-      expect(http.setGtk).toHaveBeenLastCalledWith("bootstrap-gtk");
+      expect(http.get).toHaveBeenCalledTimes(2);
+      expect(http.get).toHaveBeenLastCalledWith(expect.stringContaining("/v3/login.awp?gtk=1&v=4.96.3"));
+      // Each bootstrap drops the cached header value so X-GTK tracks the fresh
+      // cookie rather than the value rotated in by the challenge response.
+      expect(http.clearGtk).toHaveBeenCalledTimes(2);
+      expect(http.getGtk()).toBe("replay-gtk");
     });
 
     it("returns a recoverable error when challenge fetch fails", async () => {
@@ -786,6 +927,53 @@ describe("AuthService", () => {
         recoverable: true,
       });
       expect(svc.getState()).toEqual(result);
+    });
+
+    it("prefers the plain (no-profile) credentials file over a stale persisted active profile (regression: simple single-account setups getting silently redirected to profiles/<name>/)", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "legacy-token" }),
+      ]);
+      const store = makeStore();
+      // profiles.json says "parent" was active from an earlier run...
+      vi.mocked(store.loadProfileIndex).mockResolvedValue({ active: "parent", profiles: ["parent"] });
+      // ...but no profile-scoped session/credentials are ever asked for below —
+      // the plain top-level files answer both lookups.
+      vi.mocked(store.loadSession).mockImplementation((profile?: string) =>
+        Promise.resolve(profile === undefined ? undefined : (() => { throw new Error("should not read a profile session"); })()),
+      );
+      vi.mocked(store.loadCredentials).mockImplementation((profile?: string) => {
+        if (profile !== undefined) throw new Error("should not read profile-scoped credentials");
+        return Promise.resolve({ identifiant: "user", motdepasse: "pass" });
+      });
+      const svc = new AuthService(http, store);
+
+      const result = await svc.restore();
+
+      expect(result.status).toBe("authenticated");
+      if (result.status === "authenticated") {
+        expect(result.token).toBe("legacy-token");
+      }
+      expect(svc.getActiveProfile()).toBeUndefined();
+    });
+
+    it("still restores a persisted active profile when there is no legacy credentials/session file at all", async () => {
+      const http = makeHttp([
+        mockResponse({ code: 200, token: "", message: "" }),
+        mockResponse(successBody(), { "X-Token": "profile-token" }),
+      ]);
+      const store = makeStore();
+      vi.mocked(store.loadProfileIndex).mockResolvedValue({ active: "teacher", profiles: ["teacher"] });
+      vi.mocked(store.loadSession).mockResolvedValue(undefined);
+      vi.mocked(store.loadCredentials).mockImplementation((profile?: string) =>
+        Promise.resolve(profile === "teacher" ? { identifiant: "teach-user", motdepasse: "pass" } : undefined),
+      );
+      const svc = new AuthService(http, store);
+
+      const result = await svc.restore();
+
+      expect(result.status).toBe("authenticated");
+      expect(svc.getActiveProfile()).toBe("teacher");
     });
   });
 

@@ -31,6 +31,30 @@ describe("EdHttpClient", () => {
       client.setGtk("gtk-value");
       expect(client.getGtk()).toBe("gtk-value");
     });
+
+    it("clearGtk drops the header value so X-GTK falls back to the cookie", async () => {
+      const client = new EdHttpClient();
+      client.setCookie("GTK", "cookie-gtk-value");
+      client.setGtk("stale-gtk-value");
+
+      client.clearGtk();
+
+      expect(client.getGtk()).toBeUndefined();
+
+      let capturedHeaders: Headers | undefined;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string, init: RequestInit) => {
+        capturedHeaders = new Headers(init.headers as HeadersInit);
+        return new Response("{}", { status: 200 });
+      }) as typeof fetch;
+      try {
+        await client.get("https://api.ecoledirecte.com/v3/login.awp?gtk=1");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+
+      expect(capturedHeaders?.get("X-GTK")).toBe("cookie-gtk-value");
+    });
   });
 
   describe("token", () => {
@@ -81,8 +105,8 @@ describe("EdHttpClient", () => {
   });
 
   describe("version", () => {
-    it("defaults to 4.96.3", () => {
-      expect(new EdHttpClient().version).toBe("4.96.3");
+    it("defaults to 4.101.4", () => {
+      expect(new EdHttpClient().version).toBe("4.101.4");
     });
 
     it("accepts custom version", () => {

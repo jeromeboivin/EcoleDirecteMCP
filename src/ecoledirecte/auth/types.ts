@@ -144,6 +144,13 @@ export interface LoginPayload {
   isReLogin: boolean;
   uuid: string;
   fa: LoginFactor[];
+  /**
+   * Second-factor material from a just-answered challenge. The web app spreads
+   * `{cn, cv}` over the credentials at the top level *in addition* to listing
+   * them in `fa`, so we send both copies too.
+   */
+  cn?: string;
+  cv?: string;
   /** Accept charter if required by a previous attempt. */
   acceptationCharte?: boolean;
 }
