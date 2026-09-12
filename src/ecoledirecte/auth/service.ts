@@ -24,11 +24,20 @@ import type {
   AccountInfo,
 } from "./types.js";
 
+/** Verification questions answered in one login before we stop rather than retry. */
+const MAX_CHAINED_CHALLENGES = 3;
+
 export class AuthService {
   private state: AuthState = { status: "logged-out" };
   private pendingPayload: LoginPayload | undefined;
-  /** GTK captured after the initial login POST, preserved for the final replay. */
-  private loginGtk: string | undefined;
+  /**
+   * Second factors answered so far, mirroring the `fa` list the web app keeps in
+   * localStorage. EcoleDirecte can chain several questions in one login, and each
+   * POST carries every factor answered up to that point.
+   */
+  private answeredFactors: LoginFactor[] = [];
+  /** Questions answered in the current login, to bound a server that keeps asking. */
+  private chainedChallenges = 0;
   /** In-flight login promise — prevents concurrent logins from corrupting state. */
   private loginInFlight: Promise<AuthState> | undefined;
   /** Per-account token cache — avoids redundant renewToken API calls. */
@@ -55,7 +64,7 @@ export class AuthService {
     // Clear current in-memory state when switching profiles
     this.state = { status: "logged-out" };
     this.pendingPayload = undefined;
-    this.loginGtk = undefined;
+    this.answeredFactors = [];
     this.clearAccountTokens();
     this.http.clearAuth();
 
@@ -118,27 +127,16 @@ export class AuthService {
 
   private async performLogin(identifiant: string, motdepasse: string, persistedFa?: LoginFactor[]): Promise<AuthState> {
     this.http.clearAuth();
-    this.loginGtk = undefined;
     this.state = { status: "login-pending" };
 
     try {
       // 1. Bootstrap — obtain GTK cookie + header value
-      const bootstrapUrl = loginUrl({ gtk: true, version: this.http.version });
-      const bootstrapRes = await this.http.get(bootstrapUrl);
-      this.http.captureAuthHeaders(bootstrapRes);
-
-      // The bootstrap body may contain a GTK value we need for the POST
-      try {
-        const bootstrapBody = (await bootstrapRes.json()) as RawApiResponse;
-        if (bootstrapBody.token) {
-          this.http.setGtk(bootstrapBody.token);
-        }
-      } catch {
-        // Non-JSON bootstrap response — GTK is in headers/cookies only
-      }
+      await this.bootstrapGtk();
 
       // 2. Login POST
       const reusableFa = normalizeLoginFactors(persistedFa);
+      this.answeredFactors = [...reusableFa];
+      this.chainedChallenges = 0;
       const payload: LoginPayload = {
         identifiant,
         motdepasse,
@@ -162,7 +160,6 @@ export class AuthService {
 
         case "totp-required": {
           const totp = !!(result.challenge?.totp ?? true);
-          this.loginGtk = this.http.getGtk();
           this.state = {
             status: "totp-required",
             challenge: result.challenge ?? {},
@@ -172,7 +169,6 @@ export class AuthService {
         }
 
         case "doubleauth-required":
-          this.loginGtk = this.http.getGtk();
           return this.fetchDoubleAuthChallenge();
 
         default:
@@ -281,15 +277,27 @@ export class AuthService {
       if (challengeBody.code !== ApiCode.OK || !cn || !cv) {
         this.state = {
           status: "error",
-          message: challengeBody.message || "Identity verification failed",
+          message:
+            challengeBody.message ||
+            `Identity verification failed — the challenge answer was rejected (code ${challengeBody.code})`,
           recoverable: true,
         };
         return this.state;
       }
 
+      // The web app merges the answered challenge into the credentials object
+      // (`doLogin({...credentials, cn, cv})`) and its auth service then appends
+      // `uuid` plus the remembered-factor list, so both copies of cn/cv go out.
+      // We previously sent only the `fa` entry, and the API answered a correctly
+      // answered challenge with "Identifiant et/ou mot de passe invalide !".
       const payload: LoginPayload = {
-        ...this.pendingPayload,
-        fa: [{ cn, cv, uniq: false }],
+        identifiant: this.pendingPayload.identifiant,
+        motdepasse: this.pendingPayload.motdepasse,
+        isReLogin: this.pendingPayload.isReLogin,
+        cn,
+        cv,
+        uuid: this.pendingPayload.uuid,
+        fa: this.recordAnsweredFactor({ cn, cv, uniq: false }),
       };
 
       const loginBody = await this.replayLogin(payload);
@@ -302,9 +310,35 @@ export class AuthService {
         );
       }
 
+      // EcoleDirecte can chain a second question. The web app's login pipeline is
+      // re-entrant — a finalising login that answers 250 again simply re-opens its
+      // 2FA modal — so surface the next question rather than failing the flow.
+      //
+      // The web app leaves that loop open-ended because a person drives it. Here it
+      // is bounded: a server that keeps asking after correct answers means we are
+      // still sending something it does not accept, and each further round spends
+      // one of EcoleDirecte's own attempts on an account that locks.
+      if (result.nextState === "doubleauth-required") {
+        this.chainedChallenges += 1;
+        if (this.chainedChallenges > MAX_CHAINED_CHALLENGES) {
+          this.state = {
+            status: "error",
+            message:
+              `EcoleDirecte asked for another verification question after ${MAX_CHAINED_CHALLENGES} ` +
+              "accepted answers. Stopping rather than spending more login attempts — sign in on the " +
+              "website once to clear the challenge, then retry.",
+            recoverable: false,
+          };
+          return this.state;
+        }
+        return this.fetchDoubleAuthChallenge();
+      }
+
       this.state = {
         status: "error",
-        message: result.message ?? "Identity verification failed",
+        message:
+          result.message ??
+          `Identity verification failed — the final login returned code ${loginBody.code}`,
         recoverable: true,
       };
       return this.state;
@@ -606,10 +640,21 @@ export class AuthService {
 
   async restore(): Promise<AuthState> {
     try {
-      // Restore active profile from index
+      // Restore a persisted "active" profile from a previous run — but only when
+      // there's no plain, no-profile ~/.ecoledirecte/{session,credentials}.json to
+      // fall back on. This keeps the simple, single-account setup working exactly
+      // as configured even after profiles have been used before: a leftover
+      // "active" profile from an earlier session never silently hijacks the
+      // legacy file. Multi-profile use is unaffected — passing `profile` to a
+      // tool call still switches (and keeps) that profile for the rest of the run.
       const index = await this.store.loadProfileIndex();
       if (index.active && !this.activeProfile) {
-        this.activeProfile = index.active;
+        const legacyExists =
+          (await this.store.loadSession(undefined)) !== undefined ||
+          (await this.store.loadCredentials(undefined)) !== undefined;
+        if (!legacyExists) {
+          this.activeProfile = index.active;
+        }
       }
 
       const session = await this.store.loadSession(this.activeProfile);
@@ -658,7 +703,7 @@ export class AuthService {
   async logout(): Promise<AuthState> {
     this.state = { status: "logged-out" };
     this.pendingPayload = undefined;
-    this.loginGtk = undefined;
+    this.answeredFactors = [];
     this.clearAccountTokens();
     this.http.clearAuth();
     await this.store.clearSession(this.activeProfile);
@@ -668,7 +713,7 @@ export class AuthService {
   async logoutFull(): Promise<AuthState> {
     this.state = { status: "logged-out" };
     this.pendingPayload = undefined;
-    this.loginGtk = undefined;
+    this.answeredFactors = [];
     this.clearAccountTokens();
     this.http.clearAuth();
     await this.store.clearAll(this.activeProfile);
@@ -747,20 +792,60 @@ export class AuthService {
       accounts,
     };
     this.pendingPayload = undefined;
-    this.loginGtk = undefined;
     await this.persistSession(token, accounts);
     await this.store.saveCredentials(creds, this.activeProfile);
     await this.ensureProfileIndexed();
     return this.state;
   }
 
+  /**
+   * Append an answered factor and return the list to send as `fa`.
+   *
+   * Mirrors the web app's localStorage store: newest entry wins per `cn`, and the
+   * list is capped at ten.
+   */
+  private recordAnsweredFactor(factor: LoginFactor): LoginFactor[] {
+    this.answeredFactors = this.answeredFactors.filter((known) => known.cn !== factor.cn);
+    this.answeredFactors.push(factor);
+    if (this.answeredFactors.length > 10) this.answeredFactors.shift();
+    return [...this.answeredFactors];
+  }
+
+  /**
+   * `GET login.awp?gtk=1` — refresh the anti-CSRF GTK that the login POST echoes
+   * back in `X-GTK`. The live endpoint answers with an empty body and puts the
+   * value in a cookie, so drop the cached header value first: that keeps `X-GTK`
+   * in step with the cookie rather than pinning a stale value from an earlier
+   * response.
+   */
+  private async bootstrapGtk(): Promise<void> {
+    this.http.clearGtk();
+    const res = await this.http.get(loginUrl({ gtk: true, version: this.http.version }));
+    this.http.captureAuthHeaders(res);
+
+    // Some responses carry the GTK in the body instead of a cookie.
+    try {
+      const body = (await res.json()) as RawApiResponse;
+      if (body.token) this.http.setGtk(body.token);
+    } catch {
+      // Empty / non-JSON bootstrap body — the GTK is in the headers or cookie jar.
+    }
+  }
+
+  /**
+   * Second login POST that finalises a 2FA challenge.
+   *
+   * Mirrors the web app's `doLogin`: re-run the GTK bootstrap, then POST with
+   * the `X-Token` / `2FA-Token` headers its HTTP interceptor attaches to every
+   * request. We used to skip the bootstrap and suppress both headers, neither of
+   * which the web app does.
+   */
   private async replayLogin(payload: LoginPayload): Promise<RawApiResponse> {
-    if (this.loginGtk) this.http.setGtk(this.loginGtk);
+    await this.bootstrapGtk();
 
     const res = await this.http.postForm(
       loginUrl({ version: this.http.version }),
       payload as unknown as Record<string, unknown>,
-      { includeToken: false, includeTwoFaToken: false },
     );
     this.http.captureAuthHeaders(res);
     return (await res.json()) as RawApiResponse;

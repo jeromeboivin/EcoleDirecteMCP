@@ -6,7 +6,7 @@ export const TEACHER_API_BASE = "https://apip.ecoledirecte.com";
 export const API_VERSION = "v3";
 
 /** Default app version sent in query strings. Overrideable via config. */
-export const DEFAULT_APP_VERSION = "4.96.3";
+export const DEFAULT_APP_VERSION = "4.101.4";
 
 export function loginUrl(opts: { gtk?: boolean; version?: string } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;

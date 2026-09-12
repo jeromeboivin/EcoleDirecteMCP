@@ -230,6 +230,10 @@ export interface StudentEmploiDuTempsQuery {
   accountId?: number;
   studentId?: number;
   date?: string;
+  /** Range start (YYYY-MM-DD). Defaults to today, or `date` when that is given. */
+  dateDebut?: string;
+  /** Range end (YYYY-MM-DD). Defaults to a week out, or `date` when that is given. */
+  dateFin?: string;
 }
 
 export interface FamilyDocumentsQuery {
@@ -541,6 +545,9 @@ export interface StudentEmploiDuTempsResult extends EmploiDuTempsPayload {
   family: FamilyChoice;
   student: StudentChoice;
   selectedDate?: string;
+  /** Window actually requested from the API, echoed back for clarity. */
+  dateDebut: string;
+  dateFin: string;
 }
 
 export interface FamilyDocumentsResult extends FamilyDocumentsPayload {
@@ -1432,8 +1439,15 @@ export class EdDataService {
     const selection = await this.ensureStudentSelection(query.studentId, query.accountId);
     if (!selection.ok) return selection;
 
+    const selectedDate = query.date?.trim() || undefined;
+
+    // The API returns nothing for an empty body: the web app always posts an
+    // explicit {dateDebut, dateFin, avecTrous} window. Default to the week ahead
+    // so a bare call still returns a useful timetable.
+    const range = resolveEmploiDuTempsRange(query.dateDebut, query.dateFin, selectedDate);
     const response = await this.fetchData(
       studentEmploiDuTempsUrl(selection.data.student.id, { version: this.http.version }),
+      { dateDebut: range.dateDebut, dateFin: range.dateFin, avecTrous: false },
     );
     if (!response.ok) return response;
 
@@ -1445,7 +1459,6 @@ export class EdDataService {
       );
     }
 
-    const selectedDate = query.date?.trim() || undefined;
     const days = selectedDate
       ? normalized.data.days.filter((day) => day.date === selectedDate)
       : normalized.data.days;
@@ -1466,6 +1479,8 @@ export class EdDataService {
         days,
         totalEvents: days.reduce((sum, day) => sum + day.events.length, 0),
         ...(selectedDate ? { selectedDate } : {}),
+        dateDebut: range.dateDebut,
+        dateFin: range.dateFin,
       },
     };
   }
@@ -2874,6 +2889,38 @@ function fileNameFromDisposition(value: string | null): string | undefined {
 
   const simpleMatch = /filename="?([^";]+)"?/i.exec(value);
   return simpleMatch?.[1] ? simpleMatch[1] : undefined;
+}
+
+/** Days of timetable fetched when the caller gives no explicit window. */
+const EMPLOI_DU_TEMPS_DEFAULT_DAYS = 7;
+
+/**
+ * Resolve the {dateDebut, dateFin} window to request.
+ *
+ * An explicit range wins; a single `date` filter narrows the fetch to that day;
+ * otherwise take the week ahead of today.
+ */
+function resolveEmploiDuTempsRange(
+  dateDebut: string | undefined,
+  dateFin: string | undefined,
+  selectedDate: string | undefined,
+): { dateDebut: string; dateFin: string } {
+  const start = dateDebut?.trim() || selectedDate || isoDate(new Date());
+  const end =
+    dateFin?.trim() ||
+    selectedDate ||
+    isoDate(addDays(new Date(start), EMPLOI_DU_TEMPS_DEFAULT_DAYS));
+  return { dateDebut: start, dateFin: end };
+}
+
+function addDays(date: Date, days: number): Date {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
 }
 
 function summarizeFamily(account: AccountInfo): FamilyChoice {

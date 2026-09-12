@@ -450,13 +450,23 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
 
   server.tool(
     "get_student_emploi_du_temps",
-    "Get student timetable events grouped by day for one or more students. Omit students to query all known students sequentially.",
-    { ...studentsSchema, date: z.string().optional() },
+    "Get student timetable events grouped by day for one or more students. Fetches the week ahead by default; pass dateDebut/dateFin (YYYY-MM-DD) for another window, or date for a single day. Omit students to query all known students sequentially.",
+    {
+      ...studentsSchema,
+      date: z.string().optional(),
+      dateDebut: z.string().optional(),
+      dateFin: z.string().optional(),
+    },
     async (args) => serialize(async () => {
       log("info", "get_student_emploi_du_temps tool invoked");
       return forEachStudent(data, args.students, async (t) =>
         resultForStudentEmploiDuTemps(
-          await data.getStudentEmploiDuTemps({ ...t, date: args.date }),
+          await data.getStudentEmploiDuTemps({
+            ...t,
+            date: args.date,
+            dateDebut: args.dateDebut,
+            dateFin: args.dateFin,
+          }),
         ),
       );
     }),

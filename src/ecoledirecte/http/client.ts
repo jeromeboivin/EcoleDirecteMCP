@@ -30,7 +30,7 @@ export class EdHttpClient {
   readonly version: string;
 
   constructor(opts: { version?: string } = {}) {
-    this.version = opts.version ?? "4.96.3";
+    this.version = opts.version ?? "4.101.4";
   }
 
   // ── Cookie jar ───────────────────────────────────────────────
@@ -75,6 +75,11 @@ export class EdHttpClient {
 
   setGtk(value: string): void {
     this.xGtk = value;
+  }
+
+  /** Drop the cached header value so `X-GTK` falls back to the current GTK cookie. */
+  clearGtk(): void {
+    this.xGtk = undefined;
   }
 
   // ── Token ────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
  *   "token": "<X-Token value>",
  *   "cookies": { "GTK": "...", ...otherCookies },
  *   "xGtk": "<X-GTK header value>",
- *   "version": "4.96.3"
+ *   "version": "4.101.4"
  * }
  * ```
  */
@@ -51,7 +51,7 @@ export async function parseSessionFile(filePath: string): Promise<StoredSession>
     xGtk: file.xGtk,
     twoFaToken: file.twoFaToken,
     accounts: normalizeAccounts(file.accounts),
-    version: file.version ?? "4.96.3",
+    version: file.version ?? "4.101.4",
     savedAt: new Date().toISOString(),
   };
 }
