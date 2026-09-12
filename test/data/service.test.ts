@@ -877,11 +877,29 @@ describe("EdDataService", () => {
       expect(result.data.totalEvents).toBe(1);
       expect(result.data.days[0]?.events[0]?.subject).toBe("Mathématiques");
     }
+    // A single-day filter narrows the fetch window to that day
     expect(http.postForm).toHaveBeenCalledWith(
       expect.stringContaining("/v3/E/1154/emploidutemps.awp"),
-      {},
+      { dateDebut: "2026-03-12", dateFin: "2026-03-12", avecTrous: false },
       { includeGtk: false },
     );
+  });
+
+  it("requests a default week window when no date is given", async () => {
+    const http = makeHttp([emploiDuTempsBody]);
+    const service = new EdDataService(http, makeAuth(authenticatedState) as any);
+
+    const result = await service.getStudentEmploiDuTemps({ studentId: 1154 });
+
+    expect(result.ok).toBe(true);
+    const body = vi.mocked(http.postForm).mock.calls[0]?.[1] as Record<string, string>;
+    expect(body.avecTrous).toBe(false);
+    // The API returns nothing for an empty body, so a window is always sent
+    expect(body.dateDebut).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.dateFin).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    const spanDays =
+      (Date.parse(body.dateFin) - Date.parse(body.dateDebut)) / (1000 * 60 * 60 * 24);
+    expect(spanDays).toBe(7);
   });
 
   it("returns family documents grouped by category", async () => {
