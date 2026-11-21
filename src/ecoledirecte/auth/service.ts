@@ -554,21 +554,19 @@ export class AuthService {
     // Find the current account (must be a teacher or personnel account with uid)
     const account = current.accounts.find((a) => a.current === true);
     if (!account) {
-      this.state = {
+      return {
         status: "error",
         message: "No current account found. Authenticate first.",
         recoverable: true,
       };
-      return this.state;
     }
 
     if (!account.isProfEtPersonnel) {
-      this.state = {
+      return {
         status: "error",
         message: "This account does not support role switching. Only accounts with both teacher and personnel roles can switch.",
         recoverable: true,
       };
-      return this.state;
     }
 
     if (account.type === targetType) {
@@ -577,12 +575,11 @@ export class AuthService {
     }
 
     if (!account.uid) {
-      this.state = {
+      return {
         status: "error",
         message: "Role switching requires uid metadata. Re-import a browser session that includes uid or authenticate again.",
         recoverable: true,
       };
-      return this.state;
     }
 
     try {
@@ -595,23 +592,39 @@ export class AuthService {
 
       const body = (await res.json()) as RawApiResponse;
       if (body.code !== ApiCode.OK) {
-        this.state = {
+        return {
           status: "error",
           message: body.message || `Unable to switch to ${role} role.`,
-          recoverable: true,
+        recoverable: true,
         };
-        return this.state;
       }
 
       const token = this.getResolvedToken(body.token);
 
-      // The response carries a full updated account list — rebuild from fresh data
+      // The live API answers with the switched account itself in `data`
+      // (`{id, typeCompte, profile, modules, …}`), not an `accounts` list — the web
+      // app's `swipeProfil` stores `response.data` as the current user. Accept a
+      // list too, in case a deployment returns one.
       const freshAccounts = extractAccounts(body);
+      const switchedAccount = normalizeAccount(body.data);
       const currentAccountId = extractCurrentAccountId(body) ?? account.id;
-      const accounts = applyCurrentAccount(
-        freshAccounts.length > 0 ? freshAccounts : current.accounts,
-        currentAccountId,
-      );
+      let rebuilt = current.accounts;
+      if (freshAccounts.length > 0) {
+        rebuilt = freshAccounts;
+      } else if (switchedAccount) {
+        // Replace the old-role entry; keep the previous role's metadata the new
+        // payload omits (the personnel profile carries no classes/groups/subjects).
+        rebuilt = current.accounts.map((existing) =>
+          existing.id === switchedAccount.id ? { ...existing, ...switchedAccount } : existing,
+        );
+        const merged = rebuilt.find((a) => a.id === switchedAccount.id);
+        if (merged) {
+          for (const key of ["classes", "groups", "subjects"] as const) {
+            if (!switchedAccount[key]) delete merged[key];
+          }
+        }
+      }
+      const accounts = applyCurrentAccount(rebuilt, currentAccountId);
 
       // Cache the token for the switched role
       this.accountTokens.set(currentAccountId, token);
@@ -624,12 +637,11 @@ export class AuthService {
       await this.persistSession(token, accounts);
       return this.state;
     } catch (error) {
-      this.state = {
+      return {
         status: "error",
         message: `Role switch failed: ${formatError(error)}`,
         recoverable: true,
       };
-      return this.state;
     }
   }
 
@@ -973,6 +985,7 @@ function normalizeAccount(account: unknown): AccountInfo | undefined {
     ...(typeof candidate.idLogin === "number" ? { idLogin: candidate.idLogin } : {}),
     ...(typeof candidate.uid === "string" && candidate.uid ? { uid: candidate.uid } : {}),
     ...(typeof candidate.isProfEtPersonnel === "boolean" ? { isProfEtPersonnel: candidate.isProfEtPersonnel } : {}),
+    ...(profile?.isChefEtab === true ? { isChefEtab: true } : {}),
     ...(typeof candidate.main === "boolean" ? { main: candidate.main } : {}),
     ...(typeof candidate.current === "boolean" ? { current: candidate.current } : {}),
     ...(students && students.length > 0 ? { students } : {}),

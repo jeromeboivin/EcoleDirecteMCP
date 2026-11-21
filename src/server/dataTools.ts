@@ -26,6 +26,7 @@ import type {
   TeacherClassCarnetCorrespondanceResult,
   TeacherClassStudentsResult,
   TeacherCouncilDetailResult,
+  TeacherClassCouncilReport,
   TeacherCouncilTargetsResult,
   TeacherEmploiDuTempsResult,
   TeacherGradebookAppreciationsResult,
@@ -146,6 +147,13 @@ const teacherStudentNotesQuerySchema = {
   ...teacherQuerySchema,
   studentId: z.number().int().positive(),
   periodCode: z.string().min(1).optional(),
+};
+
+const teacherClassCouncilReportQuerySchema = {
+  ...teacherQuerySchema,
+  entityId: z.number().int().positive(),
+  entityType: z.enum(["C", "G"]).optional(),
+  periodCode: z.string().min(1),
 };
 
 const teacherCahierDeTextesQuerySchema = {
@@ -563,6 +571,17 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
   );
 
   server.tool(
+    "get_teacher_class_council_report",
+    "Get a whole class's council report for one period in a single call: every student with general average, rank, per-subject average, class average and teacher appreciations, plus class appreciations. Works for teacher and personnel (direction) accounts. Use list_teacher_council_targets to find entityId and periodCode. Reads one notes sheet per student, so it can take a while for a large class.",
+    teacherClassCouncilReportQuerySchema,
+    async (args) => serialize(async () => {
+      log("info", "get_teacher_class_council_report tool invoked");
+      const result = await data.getTeacherClassCouncilReport(args);
+      return resultForTeacherClassCouncilReport(result);
+    }),
+  );
+
+  server.tool(
     "list_teacher_attendance_targets",
     "List teacher attendance classes, groups, and suggested time slots. Uses account metadata plus the attendance grid exposed by niveauxListe.",
     teacherQuerySchema,
@@ -888,6 +907,16 @@ function resultForTeacherStudentNotes(
   return successResult(summary, result.data);
 }
 
+function resultForTeacherClassCouncilReport(
+  result: Awaited<ReturnType<EdDataService["getTeacherClassCouncilReport"]>>,
+) {
+  if (!result.ok) return failureResult(result);
+  const label = result.data.target.label ?? result.data.target.code ?? `class ${result.data.target.id}`;
+  const gaps = result.data.failures.length > 0 ? ` ${result.data.failures.length} student sheet(s) could not be read.` : "";
+  const summary = `Council report for ${label} (${result.data.selectedPeriod.code}): ${result.data.students.length}/${result.data.studentCount} student(s).${gaps}`;
+  return successResult(summary, result.data);
+}
+
 function resultForTeacherAttendanceTargets(
   result: Awaited<ReturnType<EdDataService["listTeacherAttendanceTargets"]>>,
 ) {
@@ -1041,6 +1070,7 @@ function successResult(
     | TeacherClassCarnetCorrespondanceResult
     | TeacherClassStudentsResult
     | TeacherCouncilDetailResult
+    | TeacherClassCouncilReport
     | TeacherCouncilTargetsResult
     | TeacherEmploiDuTempsResult
     | TeacherGradebookAppreciationsResult

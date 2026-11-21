@@ -405,3 +405,22 @@ describe("teacherCouncilPredefinedAppreciationsUrl", () => {
     );
   });
 });
+
+describe("staff (personnel, type A) URLs", () => {
+  it("uses the personnels scope for messages", () => {
+    expect(teacherMessagesUrl(221, { profile: "A" })).toContain("/personnels/221/messages.awp");
+    expect(teacherMessageDetailUrl(221, 5, { profile: "A" })).toContain("/personnels/221/messages/5.awp");
+  });
+
+  it("uses the A segment for timetable and LSL", () => {
+    expect(teacherEmploiDuTempsUrl(221, { profile: "A" })).toContain("/v3/A/221/emploidutemps.awp");
+    expect(teacherLslUrl(221, { profile: "A" })).toContain("/v3/A/221/LSL.awp");
+  });
+});
+
+describe("teacherCouncilDetailUrl for personnel", () => {
+  it("uses the personnels scope for type A and enseignants by default", () => {
+    expect(teacherCouncilDetailUrl(221, "C", 11, "A001", { profile: "A" })).toContain("/personnels/221/C/11/periodes/A001/conseilDeClasse.awp");
+    expect(teacherCouncilDetailUrl(221, "C", 11, "A001")).toContain("/enseignants/221/C/11/");
+  });
+});
