@@ -2210,3 +2210,155 @@ describe("teacher gradebook catalog", () => {
     );
   });
 });
+describe("personnel (type A) accounts", () => {
+  const personnelAuthState: AuthState = {
+    status: "authenticated",
+    token: "staff-tok",
+    accounts: [
+      { id: 300, type: "A", name: "Mme D. DIRECTION", establishment: "Collège", main: true, current: true },
+    ],
+  };
+
+  it("resolves a type A account for teacher tools and uses the personnels scope", async () => {
+    const http = makeHttp([{ code: 200, data: { messages: { received: [] } } }]);
+    const service = new EdDataService(http, makeAuth(personnelAuthState) as any);
+
+    const result = await service.listTeacherMessages({});
+
+    expect(result.ok).toBe(true);
+    const url = vi.mocked(http.postForm).mock.calls[0]?.[0] as string;
+    expect(url).toContain("/personnels/300/messages.awp");
+  });
+
+  it("uses the A segment for the timetable", async () => {
+    const http = makeHttp([{ code: 200, data: [] }]);
+    const service = new EdDataService(http, makeAuth(personnelAuthState) as any);
+
+    await service.getTeacherEmploiDuTemps({});
+
+    const url = vi.mocked(http.postForm).mock.calls[0]?.[0] as string;
+    expect(url).toContain("/v3/A/300/emploidutemps.awp");
+  });
+});
+
+describe("personnel council targets", () => {
+  const personnelState: AuthState = {
+    status: "authenticated",
+    token: "staff-tok",
+    accounts: [
+      { id: 300, type: "A", name: "Mme D. DIRECTION", establishment: "Lycée", main: true, current: true, isProfEtPersonnel: true },
+    ],
+  };
+  const classEntry = (id: number, code: string, libelle: string) => ({
+    id,
+    idGroupe: 0, // live API: classes carry their id in `id`, `idGroupe` is 0
+    code,
+    libelle,
+    isPP: false,
+    periodes: [
+      { codePeriode: "A001", libelle: "Trimestre 1", etat: "ouvert", saisieAppreciation: true, saisieAppreciationClasse: true, matieres: [] },
+    ],
+  });
+  const catalogBody = {
+    code: 200,
+    token: "t",
+    message: "",
+    data: [{ id: 2, code: "LYC", nom: "Lycée", niveaux: [{ classes: [classEntry(11, "2A", "Seconde A"), classEntry(12, "2B", "Seconde B")], groupes: [] }] }],
+  };
+
+  it("lists every class, each with its own id, even when idGroupe is 0 and the account is not principal teacher", async () => {
+    const service = new EdDataService(makeHttp([catalogBody]), makeAuth(personnelState) as any);
+
+    const result = await service.listTeacherCouncilTargets();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.targets.map((t) => [t.id, t.code])).toEqual([[11, "2A"], [12, "2B"]]);
+    }
+  });
+});
+
+describe("personnel classes and class council report", () => {
+  const staffState: AuthState = {
+    status: "authenticated",
+    token: "staff-tok",
+    accounts: [{ id: 300, type: "A", name: "Mme D. DIRECTION", main: true, current: true, isProfEtPersonnel: true }],
+  };
+  const catalogBody = {
+    code: 200,
+    token: "t",
+    message: "",
+    data: [{
+      id: 2,
+      code: "LYC",
+      nom: "Lycée",
+      niveaux: [{
+        classes: [
+          { id: 11, idGroupe: 0, code: "2A", libelle: "Seconde A", isPP: false, periodes: [] },
+          { id: 12, idGroupe: 0, code: "2B", libelle: "Seconde B", isPP: false, periodes: [] },
+        ],
+        groupes: [],
+      }],
+    }],
+  };
+
+  it("lists a personnel account's classes from the establishment catalog", async () => {
+    const service = new EdDataService(makeHttp([catalogBody]), makeAuth(staffState) as any);
+
+    const result = await service.listTeacherClasses();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.classes).toEqual([
+        { id: 11, code: "2A", label: "Seconde A", establishment: "Lycée" },
+        { id: 12, code: "2B", label: "Seconde B", establishment: "Lycée" },
+      ]);
+    }
+  });
+
+  it("builds a per-student, per-subject council report and reports unreadable sheets", async () => {
+    const service = new EdDataService(makeHttp([]), makeAuth(staffState) as any);
+    const target = { id: 11, entityType: "C", code: "2A", label: "Seconde A", isPP: false };
+    const period = { code: "A001", appreciationOpen: true, classAppreciationOpen: true };
+    vi.spyOn(service, "getTeacherCouncilDetail").mockResolvedValue({
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: { id: 300, name: "Mme D. DIRECTION" },
+        target,
+        selectedPeriod: period,
+        students: [{ id: 1, name: "A ELEVE", dispositifs: [] }, { id: 2, name: "B ELEVE", dispositifs: [] }],
+      },
+    } as any);
+    vi.spyOn(service, "getTeacherStudentNotes").mockImplementation((async (q: { studentId: number }) => {
+      if (q.studentId === 2) return { ok: false, error: "denied", recoverable: true };
+      return {
+        ok: true,
+        data: {
+          periods: [{
+            code: "A001", generalAverage: "15,9", classAverage: "13,5", rank: 4,
+            disciplines: [
+              { code: "", name: "Domaine", isGroup: true, teachers: [], appreciations: [] },
+              { code: "MATHS", name: "MATHEMATIQUES", average: "16,2", classAverage: "13,6", rank: 7, isGroup: false,
+                teachers: [{ id: 1, name: "M. X" }], appreciations: ["Très bon trimestre", " "], classAppreciation: "Bonne classe" },
+            ],
+          }],
+        },
+      };
+    }) as any);
+
+    const result = await service.getTeacherClassCouncilReport({ entityId: 11, periodCode: "A001" });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.studentCount).toBe(2);
+      expect(result.data.students).toHaveLength(1);
+      expect(result.data.students[0]).toMatchObject({ id: 1, generalAverage: "15,9", rank: 4 });
+      expect(result.data.students[0].subjects).toEqual([
+        { code: "MATHS", name: "MATHEMATIQUES", average: "16,2", classAverage: "13,6", rank: 7,
+          teachers: ["M. X"], appreciations: ["Très bon trimestre"], classAppreciation: "Bonne classe" },
+      ]);
+      expect(result.data.failures).toEqual([{ studentId: 2, name: "B ELEVE", error: "denied" }]);
+    }
+  });
+});

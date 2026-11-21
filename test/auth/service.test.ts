@@ -1257,6 +1257,7 @@ describe("AuthService", () => {
       ];
     }
 
+    /** Live shape: `data` is the switched account itself, not an `accounts` list. */
     function switchRoleResponseBody(targetType: string): RawApiResponse {
       return {
         code: ApiCode.OK,
@@ -1264,26 +1265,16 @@ describe("AuthService", () => {
         message: "",
         data: {
           id: 221,
-          accounts: [
-            {
-              id: 221,
-              idLogin: 99001,
-              typeCompte: targetType,
-              nom: "DUPONT",
-              prenom: "Marie",
-              nomEtablissement: "Collège Victor Hugo",
-              uid: "abc-uid-personnel",
-              isProfEtPersonnel: true,
-              main: true,
-              modules: [{ code: "MESSAGERIE", enable: true }, { code: "NOTES", enable: true }],
-              profile: {
-                classes: [
-                  { id: 18, code: "3B", libelle: "3ème B" },
-                  { id: 22, code: "4A", libelle: "4ème A" },
-                ],
-              },
-            },
-          ],
+          idLogin: 99001,
+          typeCompte: targetType,
+          nom: "DUPONT",
+          prenom: "Marie",
+          nomEtablissement: "Collège Victor Hugo",
+          uid: "abc-uid-personnel",
+          isProfEtPersonnel: true,
+          main: true,
+          modules: [{ code: "MESSAGERIE", enable: true }, { code: "NOTES", enable: true }],
+          profile: { nomEtablissement: "Collège Victor Hugo", isChefEtab: true },
         },
       };
     }
@@ -1312,8 +1303,9 @@ describe("AuthService", () => {
             current: true,
           }),
         ]);
-        // Should now show 2 classes (personnel sees all)
-        expect(result.accounts[0].classes).toHaveLength(2);
+        // The personnel payload carries no classes, and head-of-school is surfaced
+        expect(result.accounts[0].classes).toBeUndefined();
+        expect(result.accounts[0].isChefEtab).toBe(true);
       }
       expect(http.postForm).toHaveBeenNthCalledWith(
         2,
@@ -1440,5 +1432,24 @@ describe("AuthService", () => {
         recoverable: true,
       });
     });
+  });
+});
+
+describe("switchRole does not clobber a live session", () => {
+  it("keeps the authenticated state when the account cannot switch roles", async () => {
+    const http = makeHttp([
+      mockResponse({ code: 200, token: "", message: "" }),
+      mockResponse(
+        { code: ApiCode.OK, token: "t", message: "", data: { accounts: [{ id: 1, typeCompte: "1", nom: "A", prenom: "B", main: true, current: true }] } },
+        { "X-Token": "t" },
+      ),
+    ]);
+    const svc = new AuthService(http, makeStore());
+    await svc.login("user", "pass");
+
+    const refused = await svc.switchRole("personnel");
+
+    expect(refused.status).toBe("error");
+    expect(svc.getState().status).toBe("authenticated");
   });
 });

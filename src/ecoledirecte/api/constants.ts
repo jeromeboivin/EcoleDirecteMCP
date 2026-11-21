@@ -177,26 +177,34 @@ function messagesUrl(scopePath: string, opts: MessagesUrlOptions, baseUrl: strin
 
 // ── Teacher routes ─────────────────────────────────────────────
 
+/** Staff account type: "P" = teacher (enseignant), "A" = personnel (administration / direction). */
+export type StaffProfile = "P" | "A";
+
+/** Messaging path segment the web app uses per account type. */
+function staffScope(profile: StaffProfile | undefined): string {
+  return profile === "A" ? "personnels" : "enseignants";
+}
+
 export function teacherMessagesUrl(
   teacherId: number,
-  opts: MessagesUrlOptions = {},
+  opts: MessagesUrlOptions & { profile?: StaffProfile } = {},
 ): string {
-  return messagesUrl(`enseignants/${teacherId}`, opts, TEACHER_API_BASE);
+  return messagesUrl(`${staffScope(opts.profile)}/${teacherId}`, opts, TEACHER_API_BASE);
 }
 
 export function teacherMessageDetailUrl(
   teacherId: number,
   messageId: number,
-  opts: { mode?: "destinataire" | "expediteur"; version?: string } = {},
+  opts: { mode?: "destinataire" | "expediteur"; version?: string; profile?: StaffProfile } = {},
 ): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
   const mode = opts.mode ?? "destinataire";
-  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/messages/${messageId}.awp?verbe=get&mode=${mode}&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/${staffScope(opts.profile)}/${teacherId}/messages/${messageId}.awp?verbe=get&mode=${mode}&v=${v}`;
 }
 
-export function teacherEmploiDuTempsUrl(teacherId: number, opts: { version?: string } = {}): string {
+export function teacherEmploiDuTempsUrl(teacherId: number, opts: { version?: string; profile?: StaffProfile } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${TEACHER_API_BASE}/${API_VERSION}/P/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/${opts.profile ?? "P"}/${teacherId}/emploidutemps.awp?verbe=get&v=${v}`;
 }
 
 export function teacherCahierDeTextesUrl(
@@ -322,10 +330,10 @@ export function teacherCouncilDetailUrl(
   entityType: "C" | "G",
   entityId: number,
   periodCode: string,
-  opts: { version?: string } = {},
+  opts: { version?: string; profile?: StaffProfile } = {},
 ): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/conseilDeClasse.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/${staffScope(opts.profile)}/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/conseilDeClasse.awp?verbe=get&v=${v}`;
 }
 
 export function teacherCouncilPredefinedAppreciationsUrl(
@@ -339,7 +347,7 @@ export function teacherCouncilPredefinedAppreciationsUrl(
   return `${TEACHER_API_BASE}/${API_VERSION}/${encodeURIComponent(scope)}/${teacherId}/${entityType}/${entityId}/appreciationsPredefinies.awp?verbe=get&v=${v}`;
 }
 
-export function teacherLslUrl(teacherId: number, opts: { version?: string } = {}): string {
+export function teacherLslUrl(teacherId: number, opts: { version?: string; profile?: StaffProfile } = {}): string {
   const v = opts.version ?? DEFAULT_APP_VERSION;
-  return `${TEACHER_API_BASE}/${API_VERSION}/P/${teacherId}/LSL.awp?verbe=get&v=${v}`;
+  return `${TEACHER_API_BASE}/${API_VERSION}/${opts.profile ?? "P"}/${teacherId}/LSL.awp?verbe=get&v=${v}`;
 }

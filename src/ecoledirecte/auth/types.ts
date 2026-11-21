@@ -68,6 +68,8 @@ export interface AccountInfo {
   uid?: string;
   /** Whether this account supports both teacher (P) and personnel (A) roles. */
   isProfEtPersonnel?: boolean;
+  /** Personnel accounts only: head of establishment (directeur/directrice). */
+  isChefEtab?: boolean;
   main?: boolean;
   current?: boolean;
   students?: StudentInfo[];
@@ -85,6 +87,8 @@ export interface TeacherClassInfo {
   id: number;
   code?: string;
   label?: string;
+  /** Set for personnel accounts, whose classes come from the establishment catalog. */
+  establishment?: string;
 }
 
 export interface TeacherGroupInfo {

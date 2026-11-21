@@ -193,11 +193,15 @@ function normalizeEstablishment(entry: unknown): CatalogEstablishment[] {
 
 function normalizeClass(entry: unknown): CatalogClass[] {
   const e = entry as Record<string, unknown>;
-  const id = typeof e.idGroupe === "number"
-    ? e.idGroupe
-    : typeof e.id === "number"
-      ? e.id
-      : undefined;
+  // A class carries its real identifier in `id`; `idGroupe` is 0 for classes on the
+  // live API, so it must not win over `id`. Fall back to it only when `id` is absent.
+  const id = typeof e.id === "number" && e.id > 0
+    ? e.id
+    : typeof e.idGroupe === "number" && e.idGroupe > 0
+      ? e.idGroupe
+      : typeof e.id === "number"
+        ? e.id
+        : undefined;
   if (id === undefined) return [];
 
   const tabPP = Array.isArray(e.tabPP) ? e.tabPP : [];

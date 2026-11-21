@@ -21,6 +21,7 @@ import {
   teacherClassStudentsUrl,
   teacherGradebookNotesUrl,
   teacherEmploiDuTempsUrl,
+  type StaffProfile,
   teacherGradebookCatalogUrl,
   teacherGradebookPredefinedAppreciationsUrl,
   teacherGradebookSubjectRouteCode,
@@ -765,6 +766,45 @@ export interface TeacherCouncilDetailResult extends TeacherCouncilPayload {
   teacherMaxCharacters?: number;
 }
 
+export interface TeacherClassCouncilReportQuery extends TeacherQuery {
+  entityId: number;
+  entityType?: TeacherGradebookEntityType;
+  periodCode: string;
+}
+
+export interface TeacherClassCouncilReportStudent {
+  id: number;
+  name: string;
+  generalAverage?: string;
+  classAverage?: string;
+  rank?: number;
+  appreciationPP?: string;
+  appreciationCE?: string;
+  appreciationVS?: string;
+  councilDecision?: string;
+  subjects: {
+    code: string;
+    name: string;
+    average?: string;
+    classAverage?: string;
+    rank?: number;
+    teachers: string[];
+    appreciations: string[];
+    classAppreciation?: string;
+  }[];
+}
+
+export interface TeacherClassCouncilReport {
+  scope: "teacher";
+  teacher: TeacherChoice;
+  target: TeacherCouncilTargetSummary;
+  selectedPeriod: TeacherCouncilPeriod;
+  studentCount: number;
+  students: TeacherClassCouncilReportStudent[];
+  /** Students whose notes sheet could not be read, so a partial report is explicit. */
+  failures: { studentId: number; name: string; error: string }[];
+}
+
 export type DataResult<T> = { ok: true; data: T } | DataFailure;
 
 export class EdDataService {
@@ -1499,6 +1539,7 @@ export class EdDataService {
     const search = query.query ?? "";
     const response = await this.fetchData(
       teacherMessagesUrl(teacher.data.id, {
+        profile: staffProfileOf(teacher.data),
         mailbox,
         folderId: query.folderId,
         query: search,
@@ -1545,6 +1586,7 @@ export class EdDataService {
     const response = await this.fetchData(
       teacherMessageDetailUrl(teacher.data.id, query.messageId, {
         mode: query.mode,
+        profile: staffProfileOf(teacher.data),
         version: this.http.version,
       }),
       { anneeMessages: messagesYear },
@@ -1582,7 +1624,7 @@ export class EdDataService {
     body.avecTrous = false;
 
     const response = await this.fetchData(
-      teacherEmploiDuTempsUrl(teacher.data.id, { version: this.http.version }),
+      teacherEmploiDuTempsUrl(teacher.data.id, { version: this.http.version, profile: staffProfileOf(teacher.data) }),
       body,
     );
     if (!response.ok) return response;
@@ -2040,12 +2082,100 @@ export class EdDataService {
     const teacher = await this.ensureTeacherSelection(query.accountId);
     if (!teacher.ok) return teacher;
 
+    let classes = teacher.data.classes ?? [];
+    // A personnel profile carries no class list; its classes are the establishments'
+    // catalog entries (a teacher account keeps its own assigned classes).
+    if (teacher.data.type === "A" && classes.length === 0) {
+      const catalog = await this.fetchTeacherCatalogPayload(teacher.data);
+      if (!catalog.ok) return catalog;
+      classes = catalog.data.establishments.flatMap((establishment) =>
+        establishment.classes
+          .filter((entry) => entry.id > 0)
+          .map((entry) => ({
+            id: entry.id,
+            ...(entry.code ? { code: entry.code } : {}),
+            ...(entry.label ? { label: entry.label } : {}),
+            ...(establishment.label ? { establishment: establishment.label } : {}),
+          })),
+      );
+    }
+
     return {
       ok: true,
       data: {
         scope: "teacher",
         teacher: summarizeTeacher(teacher.data),
-        classes: teacher.data.classes ?? [],
+        classes,
+      },
+    };
+  }
+
+  /**
+   * One-call council report for a whole class and period: every student with their
+   * per-subject averages and appreciations, plus the council entries. Built from the
+   * council student list and each student's notes sheet, fetched one after another so
+   * a 35-student class does not hit the API in a burst.
+   */
+  async getTeacherClassCouncilReport(
+    query: TeacherClassCouncilReportQuery,
+  ): Promise<DataResult<TeacherClassCouncilReport>> {
+    const council = await this.getTeacherCouncilDetail({
+      accountId: query.accountId,
+      entityId: query.entityId,
+      entityType: query.entityType,
+      periodCode: query.periodCode,
+    });
+    if (!council.ok) return council;
+
+    const students: TeacherClassCouncilReportStudent[] = [];
+    const failures: { studentId: number; name: string; error: string }[] = [];
+
+    for (const councilStudent of council.data.students) {
+      const notes = await this.getTeacherStudentNotes({
+        accountId: query.accountId,
+        studentId: councilStudent.id,
+        periodCode: query.periodCode,
+      });
+      if (!notes.ok) {
+        failures.push({ studentId: councilStudent.id, name: councilStudent.name, error: notes.error });
+        continue;
+      }
+      const period = notes.data.periods.find((candidate) => candidate.code === query.periodCode);
+      students.push({
+        id: councilStudent.id,
+        name: councilStudent.name,
+        ...(period?.generalAverage ? { generalAverage: period.generalAverage } : {}),
+        ...(period?.classAverage ? { classAverage: period.classAverage } : {}),
+        ...(period?.rank !== undefined ? { rank: period.rank } : {}),
+        ...(period?.appreciationPP ? { appreciationPP: period.appreciationPP } : {}),
+        ...(period?.appreciationCE ? { appreciationCE: period.appreciationCE } : {}),
+        ...(period?.appreciationVS ? { appreciationVS: period.appreciationVS } : {}),
+        ...(period?.councilDecision ? { councilDecision: period.councilDecision } : {}),
+        subjects: (period?.disciplines ?? [])
+          .filter((discipline) => !discipline.isGroup)
+          .map((discipline) => ({
+            code: discipline.code,
+            name: discipline.name,
+            ...(discipline.average ? { average: discipline.average } : {}),
+            ...(discipline.classAverage ? { classAverage: discipline.classAverage } : {}),
+            ...(discipline.rank ? { rank: discipline.rank } : {}),
+            teachers: discipline.teachers.map((teacher) => teacher.name),
+            appreciations: discipline.appreciations.filter((text) => text.trim().length > 0),
+            ...(discipline.classAppreciation ? { classAppreciation: discipline.classAppreciation } : {}),
+          })),
+      });
+    }
+
+    return {
+      ok: true,
+      data: {
+        scope: "teacher",
+        teacher: council.data.teacher,
+        target: council.data.target,
+        selectedPeriod: council.data.selectedPeriod,
+        studentCount: council.data.students.length,
+        students,
+        failures,
       },
     };
   }
@@ -2075,7 +2205,7 @@ export class EdDataService {
     const teacher = await this.ensureTeacherSelection(query.accountId);
     if (!teacher.ok) return teacher;
 
-    const lsl = await this.fetchTeacherLslPayload(teacher.data.id);
+    const lsl = await this.fetchTeacherLslPayload(teacher.data.id, staffProfileOf(teacher.data));
     if (!lsl.ok) return lsl;
 
     return {
@@ -2108,7 +2238,7 @@ export class EdDataService {
       return this.failure("studentId must be a positive integer.", true);
     }
 
-    const lsl = await this.fetchTeacherLslPayload(teacher.data.id);
+    const lsl = await this.fetchTeacherLslPayload(teacher.data.id, staffProfileOf(teacher.data));
     if (!lsl.ok) return lsl;
 
     const classEntry = lsl.data.classes.find((candidate) => candidate.id === query.classId);
@@ -2297,7 +2427,7 @@ export class EdDataService {
         entityType,
         query.entityId,
         query.periodCode,
-        { version: this.http.version },
+        { version: this.http.version, profile: staffProfileOf(teacher.data) },
       ),
     );
     if (!councilResponse.ok) return councilResponse;
@@ -2311,7 +2441,10 @@ export class EdDataService {
         { version: this.http.version },
       ),
     );
-    if (!ppTemplatesResponse.ok) return ppTemplatesResponse;
+    // The predefined-appreciation templates only help someone writing appreciations;
+    // a personnel account reads the council and may be refused them — don't fail on it.
+    const readOnlyStaff = teacher.data.type === "A";
+    if (!ppTemplatesResponse.ok && !readOnlyStaff) return ppTemplatesResponse;
 
     const teacherTemplatesResponse = await this.fetchData(
       teacherCouncilPredefinedAppreciationsUrl(
@@ -2322,7 +2455,7 @@ export class EdDataService {
         { version: this.http.version },
       ),
     );
-    if (!teacherTemplatesResponse.ok) return teacherTemplatesResponse;
+    if (!teacherTemplatesResponse.ok && !readOnlyStaff) return teacherTemplatesResponse;
 
     const normalizedCouncil = normalizeTeacherCouncilResponse(councilResponse.data);
     if (!normalizedCouncil.ok || !normalizedCouncil.data) {
@@ -2332,7 +2465,10 @@ export class EdDataService {
       );
     }
 
-    const normalizedPpTemplates = normalizeTeacherGradebookPredefinedAppreciationsResponse(ppTemplatesResponse.data);
+    const noTemplates = { code: 200, token: "", message: "", data: { predefinedAppreciations: [] } };
+    const normalizedPpTemplates = normalizeTeacherGradebookPredefinedAppreciationsResponse(
+      ppTemplatesResponse.ok ? ppTemplatesResponse.data : noTemplates,
+    );
     if (!normalizedPpTemplates.ok || !normalizedPpTemplates.data) {
       return this.failure(
         normalizedPpTemplates.message ?? `Unexpected principal-professor template response code ${normalizedPpTemplates.code}`,
@@ -2340,7 +2476,9 @@ export class EdDataService {
       );
     }
 
-    const normalizedTeacherTemplates = normalizeTeacherGradebookPredefinedAppreciationsResponse(teacherTemplatesResponse.data);
+    const normalizedTeacherTemplates = normalizeTeacherGradebookPredefinedAppreciationsResponse(
+      teacherTemplatesResponse.ok ? teacherTemplatesResponse.data : noTemplates,
+    );
     if (!normalizedTeacherTemplates.ok || !normalizedTeacherTemplates.data) {
       return this.failure(
         normalizedTeacherTemplates.message ?? `Unexpected teacher template response code ${normalizedTeacherTemplates.code}`,
@@ -2453,9 +2591,9 @@ export class EdDataService {
     };
   }
 
-  private async fetchTeacherLslPayload(teacherId: number): Promise<DataResult<TeacherLslPayload>> {
+  private async fetchTeacherLslPayload(teacherId: number, profile?: StaffProfile): Promise<DataResult<TeacherLslPayload>> {
     const response = await this.fetchData(
-      teacherLslUrl(teacherId, { version: this.http.version }),
+      teacherLslUrl(teacherId, { version: this.http.version, profile }),
     );
     if (!response.ok) return response;
 
@@ -2623,8 +2761,8 @@ export class EdDataService {
   }
 
   private resolveTeacher(accounts: AccountInfo[], accountId?: number): DataResult<AccountInfo> {
-    // Teacher accounts have type "P"
-    const teachers = accounts.filter((account) => account.type === "P");
+    // Staff accounts: "P" = teacher, "A" = personnel (administration / direction)
+    const teachers = accounts.filter((account) => isStaffAccount(account));
 
     if (accountId !== undefined) {
       const selected = teachers.find((account) => account.id === accountId);
@@ -2642,7 +2780,7 @@ export class EdDataService {
     if (teachers.length === 1) return { ok: true, data: teachers[0] };
     if (teachers.length === 0) {
       return this.failure(
-        "No teacher account found. Authenticate with a teacher login or import a teacher session.",
+        "No teacher or personnel account found. Authenticate with a teacher/personnel login or import such a session.",
         false,
         { availableTeachers: [] },
       );
@@ -3136,7 +3274,9 @@ function buildTeacherCouncilTargets(
   const targets = new Map<number, TeacherCouncilTarget>();
 
   for (const teacherClass of catalog.establishments.flatMap((establishment) => establishment.classes)) {
-    if (!isCatalogClassPrincipalProfessorForTeacher(account, teacherClass)) continue;
+    // Teachers get the classes they are principal teacher of; a personnel account
+    // (administration / direction) sees every class's council.
+    if (account.type !== "A" && !isCatalogClassPrincipalProfessorForTeacher(account, teacherClass)) continue;
 
     const metadata = metadataClasses.get(teacherClass.id);
     const previous = targets.get(teacherClass.id);
@@ -3145,7 +3285,7 @@ function buildTeacherCouncilTargets(
       entityType: "C",
       ...(metadata?.code ? { code: metadata.code } : teacherClass.code ? { code: teacherClass.code } : {}),
       ...(metadata?.label ? { label: metadata.label } : teacherClass.label ? { label: teacherClass.label } : {}),
-      isPP: true,
+      isPP: isCatalogClassPrincipalProfessorForTeacher(account, teacherClass),
       periods: mergeTeacherCouncilPeriods(
         previous?.periods ?? [],
         teacherClass.periods.map((period) => summarizeTeacherCouncilPeriod(period)),
@@ -3202,6 +3342,14 @@ function mergeTeacherCouncilPeriods(
   }
 
   return [...merged.values()];
+}
+
+function isStaffAccount(account: AccountInfo): boolean {
+  return account.type === "P" || account.type === "A";
+}
+
+function staffProfileOf(account: AccountInfo): StaffProfile {
+  return account.type === "A" ? "A" : "P";
 }
 
 function summarizeTeacherLslClass(classEntry: TeacherLslPayload["classes"][number]): TeacherLslClassSummary {

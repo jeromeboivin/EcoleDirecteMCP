@@ -704,6 +704,7 @@ describe("MCP data tools", () => {
     expect(server.handlers.has("list_teacher_messages")).toBe(true);
     expect(server.handlers.has("get_teacher_emploi_du_temps")).toBe(true);
     expect(server.handlers.has("list_teacher_classes")).toBe(true);
+    expect(server.handlers.has("get_teacher_class_council_report")).toBe(true);
     expect(server.handlers.has("get_teacher_class_students")).toBe(true);
     expect(server.handlers.has("list_teacher_attendance_targets")).toBe(true);
     expect(server.handlers.has("get_teacher_attendance_roster")).toBe(true);
