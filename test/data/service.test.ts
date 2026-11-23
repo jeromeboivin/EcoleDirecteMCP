@@ -2355,8 +2355,11 @@ describe("personnel classes and class council report", () => {
       expect(result.data.students).toHaveLength(1);
       expect(result.data.students[0]).toMatchObject({ id: 1, generalAverage: "15,9", rank: 4 });
       expect(result.data.students[0].subjects).toEqual([
-        { code: "MATHS", name: "MATHEMATIQUES", average: "16,2", classAverage: "13,6", rank: 7,
-          teachers: ["M. X"], appreciations: ["Très bon trimestre"], classAppreciation: "Bonne classe" },
+        { code: "MATHS", average: "16,2", rank: 7, appreciations: ["Très bon trimestre"] },
+      ]);
+      // Class-wide values are stated once, not repeated per student.
+      expect(result.data.subjects).toEqual([
+        { code: "MATHS", name: "MATHEMATIQUES", teachers: ["M. X"], classAverage: "13,6", classAppreciation: "Bonne classe" },
       ]);
       expect(result.data.failures).toEqual([{ studentId: 2, name: "B ELEVE", error: "denied" }]);
     }

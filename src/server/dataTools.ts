@@ -154,6 +154,8 @@ const teacherClassCouncilReportQuerySchema = {
   entityId: z.number().int().positive(),
   entityType: z.enum(["C", "G"]).optional(),
   periodCode: z.string().min(1),
+  studentOffset: z.number().int().min(0).optional(),
+  studentLimit: z.number().int().positive().optional(),
 };
 
 const teacherCahierDeTextesQuerySchema = {
@@ -572,7 +574,7 @@ export function registerDataTools(server: McpServer, data: EdDataService): void 
 
   server.tool(
     "get_teacher_class_council_report",
-    "Get a whole class's council report for one period in a single call: every student with general average, rank, per-subject average, class average and teacher appreciations, plus class appreciations. Works for teacher and personnel (direction) accounts. Use list_teacher_council_targets to find entityId and periodCode. Reads one notes sheet per student, so it can take a while for a large class.",
+    "Get a whole class's council report for one period in a single call: every student with general average, rank, per-subject average, class average and teacher appreciations, plus class appreciations. Works for teacher and personnel (direction) accounts. Use list_teacher_council_targets to find entityId and periodCode. Reads one notes sheet per student, so it can take a while for a large class. Teachers, class average and class appreciation are listed once per subject in `subjects`; use studentOffset/studentLimit to page through a large class.",
     teacherClassCouncilReportQuerySchema,
     async (args) => serialize(async () => {
       log("info", "get_teacher_class_council_report tool invoked");
@@ -913,8 +915,9 @@ function resultForTeacherClassCouncilReport(
   if (!result.ok) return failureResult(result);
   const label = result.data.target.label ?? result.data.target.code ?? `class ${result.data.target.id}`;
   const gaps = result.data.failures.length > 0 ? ` ${result.data.failures.length} student sheet(s) could not be read.` : "";
-  const summary = `Council report for ${label} (${result.data.selectedPeriod.code}): ${result.data.students.length}/${result.data.studentCount} student(s).${gaps}`;
-  return successResult(summary, result.data);
+  const summary = `Council report for ${label} (${result.data.selectedPeriod.code}): ${result.data.students.length}/${result.data.studentCount} student(s) from offset ${result.data.studentOffset}.${gaps}`;
+  // A whole class is large; compact JSON keeps it under the client's result size limit.
+  return successResult(summary, result.data, { compact: true });
 }
 
 function resultForTeacherAttendanceTargets(
@@ -1085,12 +1088,13 @@ function successResult(
     | TeacherStudentCarnetCorrespondanceResult
     | TeacherStudentNotesResult
     | { scope: string; teacher: { name: string }; classes: unknown },
+  options: { compact?: boolean } = {},
 ) {
   return {
     content: [
       {
         type: "text" as const,
-        text: `${summary}\n\n${JSON.stringify(payload, null, 2)}`,
+        text: `${summary}\n\n${JSON.stringify(payload, null, options.compact ? undefined : 2)}`,
       },
     ],
     isError: false,

@@ -770,6 +770,10 @@ export interface TeacherClassCouncilReportQuery extends TeacherQuery {
   entityId: number;
   entityType?: TeacherGradebookEntityType;
   periodCode: string;
+  /** Skip this many council students (for paging through a large class). */
+  studentOffset?: number;
+  /** Read at most this many students; omit for the whole class. */
+  studentLimit?: number;
 }
 
 export interface TeacherClassCouncilReportStudent {
@@ -782,16 +786,21 @@ export interface TeacherClassCouncilReportStudent {
   appreciationCE?: string;
   appreciationVS?: string;
   councilDecision?: string;
+  /** Per-student results only; name, teachers and class-wide values live in `subjects` of the report. */
   subjects: {
     code: string;
-    name: string;
     average?: string;
-    classAverage?: string;
     rank?: number;
-    teachers: string[];
-    appreciations: string[];
-    classAppreciation?: string;
+    appreciations?: string[];
   }[];
+}
+
+export interface TeacherClassCouncilReportSubject {
+  code: string;
+  name: string;
+  teachers: string[];
+  classAverage?: string;
+  classAppreciation?: string;
 }
 
 export interface TeacherClassCouncilReport {
@@ -800,6 +809,9 @@ export interface TeacherClassCouncilReport {
   target: TeacherCouncilTargetSummary;
   selectedPeriod: TeacherCouncilPeriod;
   studentCount: number;
+  studentOffset: number;
+  /** Class-wide data per subject, stated once instead of repeated for every student. */
+  subjects: TeacherClassCouncilReportSubject[];
   students: TeacherClassCouncilReportStudent[];
   /** Students whose notes sheet could not be read, so a partial report is explicit. */
   failures: { studentId: number; name: string; error: string }[];
@@ -2130,7 +2142,14 @@ export class EdDataService {
     const students: TeacherClassCouncilReportStudent[] = [];
     const failures: { studentId: number; name: string; error: string }[] = [];
 
-    for (const councilStudent of council.data.students) {
+    const subjectsByCode = new Map<string, TeacherClassCouncilReportSubject>();
+    const offset = Math.max(0, query.studentOffset ?? 0);
+    const selected = council.data.students.slice(
+      offset,
+      query.studentLimit !== undefined ? offset + query.studentLimit : undefined,
+    );
+
+    for (const councilStudent of selected) {
       const notes = await this.getTeacherStudentNotes({
         accountId: query.accountId,
         studentId: councilStudent.id,
@@ -2153,16 +2172,30 @@ export class EdDataService {
         ...(period?.councilDecision ? { councilDecision: period.councilDecision } : {}),
         subjects: (period?.disciplines ?? [])
           .filter((discipline) => !discipline.isGroup)
-          .map((discipline) => ({
-            code: discipline.code,
-            name: discipline.name,
-            ...(discipline.average ? { average: discipline.average } : {}),
-            ...(discipline.classAverage ? { classAverage: discipline.classAverage } : {}),
-            ...(discipline.rank ? { rank: discipline.rank } : {}),
-            teachers: discipline.teachers.map((teacher) => teacher.name),
-            appreciations: discipline.appreciations.filter((text) => text.trim().length > 0),
-            ...(discipline.classAppreciation ? { classAppreciation: discipline.classAppreciation } : {}),
-          })),
+          .map((discipline) => {
+            const known = subjectsByCode.get(discipline.code);
+            if (!known) {
+              subjectsByCode.set(discipline.code, {
+                code: discipline.code,
+                name: discipline.name,
+                teachers: discipline.teachers.map((teacher) => teacher.name),
+                ...(discipline.classAverage ? { classAverage: discipline.classAverage } : {}),
+                ...(discipline.classAppreciation ? { classAppreciation: discipline.classAppreciation } : {}),
+              });
+            } else {
+              if (!known.classAverage && discipline.classAverage) known.classAverage = discipline.classAverage;
+              if (!known.classAppreciation && discipline.classAppreciation) {
+                known.classAppreciation = discipline.classAppreciation;
+              }
+            }
+            const appreciations = discipline.appreciations.filter((text) => text.trim().length > 0);
+            return {
+              code: discipline.code,
+              ...(discipline.average ? { average: discipline.average } : {}),
+              ...(discipline.rank ? { rank: discipline.rank } : {}),
+              ...(appreciations.length > 0 ? { appreciations } : {}),
+            };
+          }),
       });
     }
 
@@ -2174,6 +2207,8 @@ export class EdDataService {
         target: council.data.target,
         selectedPeriod: council.data.selectedPeriod,
         studentCount: council.data.students.length,
+        studentOffset: offset,
+        subjects: [...subjectsByCode.values()],
         students,
         failures,
       },
