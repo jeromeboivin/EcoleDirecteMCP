@@ -139,8 +139,8 @@ export class EdHttpClient {
       .join("; ");
   }
 
-  private async request(url: string, init: RequestInit): Promise<Response> {
-    for (let attempt = 1; attempt <= FETCH_MAX_ATTEMPTS; attempt += 1) {
+  private async request(url: string, init: RequestInit, maxAttempts = FETCH_MAX_ATTEMPTS): Promise<Response> {
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         return await fetch(url, {
           ...init,
@@ -148,7 +148,7 @@ export class EdHttpClient {
           signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         });
       } catch (error) {
-        if (!shouldRetryRequest(error) || attempt >= FETCH_MAX_ATTEMPTS) {
+        if (!shouldRetryRequest(error) || attempt >= maxAttempts) {
           throw error;
         }
         await wait(FETCH_RETRY_BASE_DELAY_MS * Math.pow(2, attempt - 1));
@@ -176,7 +176,7 @@ export class EdHttpClient {
   async postForm(
     url: string,
     data: Record<string, unknown>,
-    opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean } = {},
+    opts: { includeGtk?: boolean; includeToken?: boolean; includeTwoFaToken?: boolean; retry?: boolean } = {},
   ): Promise<Response> {
     const body = `data=${encodeURIComponent(JSON.stringify(data))}`;
     return this.request(url, {
@@ -186,7 +186,23 @@ export class EdHttpClient {
         "Content-Type": CONTENT_TYPE_FORM,
       },
       body,
-    });
+    }, opts.retry === false ? 1 : FETCH_MAX_ATTEMPTS);
+  }
+
+  /** The browser's upload widget uses only X-Token and lets the client set the multipart boundary. */
+  async postMultipartOnce(url: string, body: FormData): Promise<Response> {
+    if (!this.xToken) throw new Error("No authenticated upload token.");
+    return this.request(url, {
+      method: "POST",
+      headers: {
+        "User-Agent": DEFAULT_USER_AGENT,
+        Accept: "application/json",
+        "Cache-Control": "no-cache",
+        "X-Requested-With": "XMLHttpRequest",
+        "X-Token": this.xToken,
+      },
+      body,
+    }, 1);
   }
 
   /** Extract auth-relevant response headers after a login call. */
