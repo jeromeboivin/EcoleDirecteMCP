@@ -6,7 +6,7 @@ import { serialize } from "./serialize.js";
 
 export function registerWriteTools(server: McpServer, writes: EdWriteService): void {
   server.registerTool("prepare_ecoledirecte_write", {
-    description: "Preview a staff message, new teacher homework or lesson content, or a document attachment to an existing cahier entry. Makes no network requests. Show the preview to the user and obtain explicit approval before executing it. A newer preview replaces the previous one.",
+    description: "Preview a message, cahier entry or attachment, a new gradebook evaluation, or numeric grades for an existing evaluation. Makes no network requests. Show the preview (including grade publication and old/new values where relevant) to the user and obtain explicit approval before executing. A newer preview replaces the previous one.",
     inputSchema: { operation: writeOperationSchema },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, ({ operation }) => serialize(() => result(() => writes.prepare(operation))));

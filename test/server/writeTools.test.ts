@@ -26,6 +26,9 @@ it("exposes preview and an explicitly confirmed one-shot write over MCP", async 
     const { tools } = await client.listTools();
     expect(tools.find(({ name }) => name === previewName)?.annotations?.readOnlyHint).toBe(true);
     expect(tools.find(({ name }) => name === executeName)?.annotations).toMatchObject({ readOnlyHint: false, idempotentHint: false });
+    const schema = JSON.stringify(tools.find(({ name }) => name === previewName)?.inputSchema);
+    expect(schema).toContain("create_gradebook_evaluation");
+    expect(schema).toContain("save_gradebook_notes");
     const preview = await client.callTool({ name: previewName, arguments: {
       operation: { kind: "send_message", accountId: 1, subject: "Test", text: "Test message", recipients: [{ id: 2, role: "P" }] },
     } });

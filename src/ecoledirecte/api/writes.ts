@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { API_BASE, API_VERSION, TEACHER_API_BASE, type StaffProfile } from "./constants.js";
+import { createGradebookEvaluationSchema, saveGradebookNotesSchema } from "./gradebookWrites.js";
 
 const id = z.number().int().positive().safe();
 const date = z.string().date();
@@ -36,6 +37,8 @@ export const writeOperationSchema = z.discriminatedUnion("kind", [
     side: z.enum(["afaire", "seance"]), filePath: z.string().min(1).max(4096)
       .describe("An absolute path on the MCP server to a regular file (up to 50 MiB)"),
   }).strict(),
+  createGradebookEvaluationSchema,
+  saveGradebookNotesSchema,
 ]);
 
 export type WriteOperation = z.infer<typeof writeOperationSchema>;
