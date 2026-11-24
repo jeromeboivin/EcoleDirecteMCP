@@ -290,6 +290,11 @@ export function teacherGradebookSubjectRouteCode(subjectCode: string, subSubject
   return `${trimmed}¤${trimmedSubSubject ?? ""}`;
 }
 
+export function teacherGradebookSubjectSegment(subjectCode: string, subSubjectCode?: string): string {
+  const code = teacherGradebookSubjectRouteCode(subjectCode, subSubjectCode);
+  return encodeURIComponent(code.replace("/", "_______________").replace("+", "PPPPPPPPPPPPPPP"));
+}
+
 export function teacherGradebookNotesUrl(
   teacherId: number,
   entityType: "C" | "G",
@@ -298,9 +303,32 @@ export function teacherGradebookNotesUrl(
   subjectCode: string,
   opts: { subSubjectCode?: string; version?: string } = {},
 ): string {
-  const v = opts.version ?? DEFAULT_APP_VERSION;
-  const subjectSegment = encodeURIComponent(teacherGradebookSubjectRouteCode(subjectCode, opts.subSubjectCode));
-  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/matieres/${subjectSegment}/notes.awp?verbe=get&v=${v}`;
+  return gradebookUrl(teacherId, entityType, entityId, periodCode, subjectCode, "notes", "get", opts);
+}
+
+export function teacherGradebookWriteUrl(
+  teacherId: number,
+  target: { entityType: "C" | "G"; entityId: number; periodCode: string; subjectCode: string; subSubjectCode?: string },
+  route: "devoirs" | "notes",
+  version: string,
+): string {
+  return gradebookUrl(teacherId, target.entityType, target.entityId, target.periodCode, target.subjectCode,
+    route, "post", { version, subSubjectCode: target.subSubjectCode });
+}
+
+function gradebookUrl(
+  teacherId: number,
+  entityType: "C" | "G",
+  entityId: number,
+  periodCode: string,
+  subjectCode: string,
+  route: "devoirs" | "notes" | "appreciations",
+  verb: "get" | "post",
+  opts: { subSubjectCode?: string; version?: string },
+): string {
+  const v = encodeURIComponent(opts.version ?? DEFAULT_APP_VERSION);
+  const subjectSegment = teacherGradebookSubjectSegment(subjectCode, opts.subSubjectCode);
+  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/${encodeURIComponent(periodCode)}/matieres/${subjectSegment}/${route}.awp?verbe=${verb}&v=${v}`;
 }
 
 export function teacherGradebookAppreciationsUrl(
@@ -310,9 +338,7 @@ export function teacherGradebookAppreciationsUrl(
   subjectCode: string,
   opts: { subSubjectCode?: string; version?: string } = {},
 ): string {
-  const v = opts.version ?? DEFAULT_APP_VERSION;
-  const subjectSegment = encodeURIComponent(teacherGradebookSubjectRouteCode(subjectCode, opts.subSubjectCode));
-  return `${TEACHER_API_BASE}/${API_VERSION}/enseignants/${teacherId}/${entityType}/${entityId}/periodes/ALL/matieres/${subjectSegment}/appreciations.awp?verbe=get&v=${v}`;
+  return gradebookUrl(teacherId, entityType, entityId, "ALL", subjectCode, "appreciations", "get", opts);
 }
 
 export function teacherGradebookPredefinedAppreciationsUrl(

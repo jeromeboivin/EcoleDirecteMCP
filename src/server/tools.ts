@@ -7,6 +7,7 @@ import { z } from "zod";
 import type { AuthService } from "../ecoledirecte/auth/service.js";
 import { parseSessionFile } from "../ecoledirecte/auth/sessionImport.js";
 import { log } from "../ecoledirecte/logging.js";
+import { serialize } from "./serialize.js";
 
 export function registerTools(server: McpServer, auth: AuthService): void {
   // ── login ────────────────────────────────────────────────────
@@ -14,12 +15,12 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "login",
     "Authenticate with EcoleDirecte using credentials stored in the configured credentials file. Optionally specify a named profile (e.g. 'parent', 'teacher') to isolate credentials.",
     { profile: z.string().optional() },
-    async ({ profile }) => {
+    ({ profile }) => serialize(async () => {
       log("info", "login tool invoked");
       if (profile) await auth.setActiveProfile(profile);
       const state = await auth.loginFromStore();
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── submit_totp ──────────────────────────────────────────────
@@ -27,11 +28,11 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "submit_totp",
     "Submit a TOTP code to complete two-factor authentication",
     { code: z.string() },
-    async ({ code }) => {
+    ({ code }) => serialize(async () => {
       log("info", "submit_totp tool invoked");
       const state = await auth.submitTotp(code);
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── submit_doubleauth ───────────────────────────────────────
@@ -39,11 +40,11 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "submit_doubleauth",
     "Submit the choice index for the identity-verification question shown after login",
     { choiceIndex: z.number().int().positive() },
-    async ({ choiceIndex }) => {
+    ({ choiceIndex }) => serialize(async () => {
       log("info", "submit_doubleauth tool invoked");
       const state = await auth.submitDoubleAuthChoice(choiceIndex);
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── import_session ───────────────────────────────────────────
@@ -51,7 +52,7 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "import_session",
     "Import an existing session from a browser-export JSON file. Optionally specify a named profile to store the session under.",
     { filePath: z.string(), profile: z.string().optional() },
-    async ({ filePath, profile }) => {
+    ({ filePath, profile }) => serialize(async () => {
       log("info", "import_session tool invoked");
       try {
         if (profile) await auth.setActiveProfile(profile);
@@ -69,11 +70,11 @@ export function registerTools(server: McpServer, auth: AuthService): void {
           isError: true,
         };
       }
-    },
+    }),
   );
 
   // ── auth_status ──────────────────────────────────────────────
-  server.tool("auth_status", "Get the current authentication state and active profile", {}, async () => {
+  server.tool("auth_status", "Get the current authentication state and active profile", {}, () => serialize(async () => {
     const profiles = await auth.listProfiles();
     const profileInfo = profiles.profiles.length > 0
       ? `\nProfiles: ${profiles.profiles.join(", ")}${profiles.active ? ` (active: ${profiles.active})` : ""}`
@@ -81,19 +82,19 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     const result = toolResult(auth.getState(), auth.getActiveProfile());
     result.content[0].text += profileInfo;
     return result;
-  });
+  }));
 
   // ── logout ───────────────────────────────────────────────────
   server.tool(
     "logout",
     "Clear the current session (keeps saved credentials). Optionally specify a profile.",
     { profile: z.string().optional() },
-    async ({ profile }) => {
+    ({ profile }) => serialize(async () => {
       log("info", "logout tool invoked");
       if (profile) await auth.setActiveProfile(profile);
       const state = await auth.logout();
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── logout_full ──────────────────────────────────────────────
@@ -101,12 +102,12 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "logout_full",
     "Clear both the current session and saved credentials. Optionally specify a profile.",
     { profile: z.string().optional() },
-    async ({ profile }) => {
+    ({ profile }) => serialize(async () => {
       log("info", "logout_full tool invoked");
       if (profile) await auth.setActiveProfile(profile);
       const state = await auth.logoutFull();
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── validate_session ────────────────────────────────────────
@@ -114,12 +115,12 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "validate_session",
     "Validate the current session against the live API. Optionally specify a profile.",
     { profile: z.string().optional() },
-    async ({ profile }) => {
+    ({ profile }) => serialize(async () => {
       log("info", "validate_session tool invoked");
       if (profile) await auth.setActiveProfile(profile);
       const state = await auth.validateSession();
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 
   // ── switch_role ─────────────────────────────────────────────
@@ -127,11 +128,11 @@ export function registerTools(server: McpServer, auth: AuthService): void {
     "switch_role",
     "Switch between teacher ('Enseignant', type P) and personnel ('Personnel', type A) roles. Only available for dual-role accounts (isProfEtPersonnel). Teacher mode shows only assigned classes; personnel mode shows all classes across establishments.",
     { role: z.enum(["teacher", "personnel"]) },
-    async ({ role }) => {
+    ({ role }) => serialize(async () => {
       log("info", `switch_role tool invoked: ${role}`);
       const state = await auth.switchRole(role);
       return toolResult(state, auth.getActiveProfile());
-    },
+    }),
   );
 }
 

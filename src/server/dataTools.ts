@@ -42,6 +42,7 @@ import type {
   TeacherStudentNotesResult,
 } from "../ecoledirecte/data/service.js";
 import { log } from "../ecoledirecte/logging.js";
+import { serialize } from "./serialize.js";
 
 // ── Schemas ────────────────────────────────────────────────────
 
@@ -196,19 +197,6 @@ const teacherGradebookDetailQuerySchema = {
   subjectCode: z.string().min(1),
   subSubjectCode: z.string().optional(),
 };
-
-// ── Serialization ──────────────────────────────────────────────
-
-let pending: Promise<unknown> = Promise.resolve();
-
-function serialize<T>(fn: () => Promise<T>): Promise<T> {
-  const next = pending.then(() => fn());
-  pending = next.then(
-    () => {},
-    () => {},
-  );
-  return next;
-}
 
 // ── Multi-student helpers ──────────────────────────────────────
 

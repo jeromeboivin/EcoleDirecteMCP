@@ -4,6 +4,8 @@ import { ApiCode, type RawApiResponse } from "./normalize.js";
 
 export interface CatalogSubject {
   code: string;
+  subSubjectCode?: string;
+  hasSubSubjects?: boolean;
   label?: string;
   shortLabel?: string;
   hasGrading: boolean;
@@ -298,8 +300,11 @@ function normalizeSubjects(value: unknown): CatalogSubject[] {
       ? e.isEditable.trim()
       : undefined;
 
-    subjects.set(e.code, {
+    const subSubjectCode = typeof e.codeSSMatiere === "string" && e.codeSSMatiere !== "" ? e.codeSSMatiere : undefined;
+    subjects.set(`${e.code}¤${subSubjectCode ?? ""}`, {
       code: e.code,
+      ...(subSubjectCode ? { subSubjectCode } : {}),
+      ...(e.avecSousMatiere === 1 || e.avecSousMatiere === true ? { hasSubSubjects: true } : {}),
       ...(typeof e.libelle === "string" ? { label: e.libelle } : {}),
       ...(typeof e.libelleCourt === "string" && e.libelleCourt ? { shortLabel: e.libelleCourt } : {}),
       hasGrading: e.avecNotation === true,

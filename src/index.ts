@@ -11,8 +11,10 @@ import { EdHttpClient } from "./ecoledirecte/http/client.js";
 import { AuthService } from "./ecoledirecte/auth/service.js";
 import { FileAuthStore } from "./ecoledirecte/auth/fileStore.js";
 import { EdDataService } from "./ecoledirecte/data/service.js";
+import { EdWriteService } from "./ecoledirecte/write/service.js";
 import { registerDataTools } from "./server/dataTools.js";
 import { registerTools } from "./server/tools.js";
+import { registerWriteTools } from "./server/writeTools.js";
 import { log } from "./ecoledirecte/logging.js";
 
 async function main(): Promise<void> {
@@ -42,6 +44,7 @@ async function main(): Promise<void> {
 
   registerTools(server, auth);
   registerDataTools(server, data);
+  registerWriteTools(server, new EdWriteService(http, auth, process.env.ECOLEDIRECTE_ENABLE_WRITES === "1"));
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
