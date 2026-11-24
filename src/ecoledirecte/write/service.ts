@@ -4,14 +4,16 @@ import { open } from "node:fs/promises";
 import { basename, extname, isAbsolute } from "node:path";
 import {
   teacherCahierDeTextesUrl, teacherGradebookCatalogUrl, teacherGradebookNotesUrl, teacherGradebookWriteUrl,
-  teacherNoteSettingsUrl, type StaffProfile,
+  teacherNoteSettingsUrl,
 } from "../api/constants.js";
+import { buildExtendedMutation, canMakeExtendedWrite, extendedWriteKinds, isWriteRole, validateExtendedWrite,
+  type ExtendedWrite, type WriteRole } from "../api/extendedWrites.js";
 import {
   assertNewEvaluation, createGradebookPayload, readGradebookDate, saveGradebookPayload, selectGradebookCreationTarget,
   validateGradebookPlan, verifyRecordedGrades, type GradebookWrite,
 } from "../api/gradebookWrites.js";
 import {
-  cahierSavePayload, cahierSaveUrl, cahierUploadParams, cahierUploadUrl, encodePlainText,
+  cahierMaintenanceRequest, cahierSavePayload, cahierSaveUrl, cahierUploadParams, cahierUploadUrl, encodePlainText,
   formatCahierSubject, messagePayload, staffSendMessageUrl, writeOperationSchema,
   type CahierSide, type WriteOperation,
 } from "../api/writes.js";
@@ -29,7 +31,7 @@ interface WritePlan {
   expires: number;
   state: Authenticated;
   profile: string | undefined;
-  role: StaffProfile;
+  role: WriteRole;
   operation: WriteOperation;
   content?: string;
   file?: FilePreview;
@@ -55,7 +57,7 @@ export class EdWriteService {
     const operation = writeOperationSchema.parse(input);
     const { state, account, role } = this.currentActor(operation);
     if (operation.kind === "send_message") {
-      if (!operation.recipients.some((recipient) => recipient.kind === "to")) {
+      if (operation.delivery?.mode !== "draft" && !operation.recipients.some((recipient) => recipient.kind === "to")) {
         throw new Error("At least one recipient must be in To.");
       }
       if (new Set(operation.recipients.map(({ id, role }) => `${role}:${id}`)).size !== operation.recipients.length) {
@@ -66,6 +68,7 @@ export class EdWriteService {
       throw new Error("assignedOn cannot be after the homework due date (slot.date).");
     }
     if (isGradebookWrite(operation)) validateGradebookPlan(operation);
+    if (isExtendedWrite(operation)) validateExtendedWrite(operation);
 
     const content = "text" in operation ? encodePlainText(operation.text, operation.kind === "send_message") : undefined;
     const file = operation.kind === "attach_cahier_document" ? (await readFileSnapshot(operation.filePath)).preview : undefined;
@@ -100,8 +103,21 @@ export class EdWriteService {
     const { operation, role, content } = plan;
     const version = this.http.version;
     if (isGradebookWrite(operation)) return this.executeGradebook(plan, operation, signal);
+    if (isExtendedWrite(operation)) {
+      const mutation = await buildExtendedMutation(operation, role, version, (url, label, body) => {
+        assertExecutable(plan, signal);
+        this.assertActor(plan);
+        return this.readWriteContext(url, label, body);
+      });
+      assertExecutable(plan, signal);
+      this.assertActor(plan);
+      const payload = await this.submit(() => this.http.postForm(mutation.url, mutation.body, { includeGtk: false, retry: false }));
+      const resourceId = mutation.createsId ? requireResourceId(asRecord(payload)?.[mutation.idField ?? "id"], mutation.opaqueId) : mutation.resourceId;
+      return { status: "applied" as const, operation: operation.kind, ...(resourceId !== undefined ? { resourceId } : {}) };
+    }
     let resourceId: number | string;
     if (operation.kind === "send_message") {
+      if (role !== "P" && role !== "A") throw new Error("Sending requires a teacher or personnel account.");
       resourceId = await this.submitForId("id", () => this.http.postForm(
         staffSendMessageUrl(operation.accountId, role, version), messagePayload(operation, role, content!),
         { includeGtk: false, retry: false },
@@ -116,7 +132,11 @@ export class EdWriteService {
       assertExecutable(plan, signal);
       this.assertActor(plan);
 
-      if (operation.kind === "attach_cahier_document") {
+      if (operation.kind === "manage_cahier_entry") {
+        const mutation = cahierMaintenanceRequest(operation, slot, version);
+        await this.submit(() => this.http.postForm(mutation.url, mutation.body, { includeGtk: false, retry: false }));
+        resourceId = operation.cahierId;
+      } else if (operation.kind === "attach_cahier_document") {
         if (slot.idCDT !== operation.cahierId || !hasCahierSide(slot, operation.side)) {
           throw new Error("The selected cahier entry or side no longer matches. Nothing was uploaded.");
         }
@@ -154,7 +174,7 @@ export class EdWriteService {
     const read = (url: string, label: string) => {
       assertExecutable(plan, signal);
       this.assertActor(plan);
-      return this.readGradebookData(url, label);
+      return this.readWriteContext(url, label);
     };
     const submit = (route: "devoirs" | "notes", body: Record<string, unknown>) => {
       assertExecutable(plan, signal);
@@ -186,7 +206,7 @@ export class EdWriteService {
     // The mutation returns a code, not per-student IDs or values. Verify via a read only.
     try {
       this.assertActor(plan);
-      const updated = await this.readGradebookData(readUrl, "the updated grade grid");
+      const updated = await this.readWriteContext(readUrl, "the updated grade grid");
       if (!verifyRecordedGrades(updated, operation)) throw new Error("Grade verification failed");
     } catch {
       throw new WriteOutcomeUnknown("ÉcoleDirecte accepted the request, but the submitted grades could not all be verified by re-reading the grid.");
@@ -194,9 +214,10 @@ export class EdWriteService {
     return { status: "applied" as const, operation: operation.kind, resourceId: operation.evaluationId, verifiedGradeCount: operation.grades.length };
   }
 
-  private async readGradebookData(url: string, label: string): Promise<unknown> {
+  private async readWriteContext(url: string, label: string, body: Record<string, unknown> = {}): Promise<unknown> {
+    if (new URL(url).searchParams.get("verbe") !== "get") throw new Error("Unexpected non-read request in write preflight.");
     try {
-      const response = await this.http.postForm(url, {}, { includeGtk: false, retry: false });
+      const response = await this.http.postForm(url, body, { includeGtk: false, retry: false });
       this.http.captureAuthHeaders(response);
       const envelope = response.ok ? asRecord(await response.json()) : undefined;
       if (envelope?.code === 200 && envelope.data != null) return envelope.data;
@@ -209,7 +230,7 @@ export class EdWriteService {
   private currentActor(operation: WriteOperation) {
     const state = this.auth.getState();
     if (state.status !== "authenticated" || !this.http.getToken()) {
-      throw new Error("Authenticate with an ÉcoleDirecte staff account first.");
+      throw new Error("Authenticate with an ÉcoleDirecte account first.");
     }
     const current = state.accounts.filter((account) => account.current === true);
     const onlyAccount = state.accounts.length === 1 ? state.accounts[0] : undefined;
@@ -218,7 +239,11 @@ export class EdWriteService {
       throw new Error("accountId must match the currently active account; write tools never switch accounts.");
     }
     const role = account.type;
-    if (role !== "P" && !(role === "A" && operation.kind === "send_message")) {
+    if (isExtendedWrite(operation)) {
+      if (!isWriteRole(role) || !canMakeExtendedWrite(operation, account)) {
+        throw new Error("This operation is not available for the active role or student scope.");
+      }
+    } else if (role !== "P" && !(role === "A" && operation.kind === "send_message")) {
       throw new Error("Cahier and gradebook writes require a teacher account (P); message sending requires a teacher or personnel account (P/A).");
     }
     return { state, account, role } as const;
@@ -288,9 +313,14 @@ function isGradebookWrite(operation: WriteOperation): operation is GradebookWrit
   return operation.kind === "create_gradebook_evaluation" || operation.kind === "save_gradebook_notes";
 }
 
-function requireResourceId(resourceId: unknown, upload = false): number | string {
+function isExtendedWrite(operation: WriteOperation): operation is ExtendedWrite {
+  return extendedWriteKinds.has(operation.kind);
+}
+
+function requireResourceId(resourceId: unknown, allowOpaqueId = false): number | string {
   if ((typeof resourceId === "number" && Number.isSafeInteger(resourceId) && resourceId > 0)
-    || (typeof resourceId === "string" && (/^[1-9]\d*$/.test(resourceId) || (upload && resourceId.trim() !== "" && resourceId.trim() !== "0")))) {
+    || (typeof resourceId === "string" && (/^[1-9]\d*$/.test(resourceId)
+      || (allowOpaqueId && resourceId.trim() !== "" && resourceId.trim() !== "0")))) {
     return resourceId;
   }
   throw new WriteOutcomeUnknown("ÉcoleDirecte returned success without a resource ID.");

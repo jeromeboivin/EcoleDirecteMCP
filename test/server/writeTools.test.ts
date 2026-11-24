@@ -29,6 +29,13 @@ it("exposes preview and an explicitly confirmed one-shot write over MCP", async 
     const schema = JSON.stringify(tools.find(({ name }) => name === previewName)?.inputSchema);
     expect(schema).toContain("create_gradebook_evaluation");
     expect(schema).toContain("save_gradebook_notes");
+    const capabilities = await client.callTool({ name: "list_ecoledirecte_write_capabilities", arguments: {} });
+    expect(capabilities.isError).toBe(false);
+    expect(JSON.parse((capabilities.content as { text: string }[])[0].text)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "manage_quiz", actions: expect.arrayContaining(["associate", "start", "stop"]) }),
+      expect.objectContaining({ kind: "submit_class_attendance" }),
+    ]));
+    expect(fetchMock).not.toHaveBeenCalled();
     const preview = await client.callTool({ name: previewName, arguments: {
       operation: { kind: "send_message", accountId: 1, subject: "Test", text: "Test message", recipients: [{ id: 2, role: "P" }] },
     } });

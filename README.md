@@ -45,6 +45,7 @@ Local [Model Context Protocol](https://modelcontextprotocol.io/) server (stdio) 
 - **Teacher LSL / Parcoursup student detail** — returns a scoped student detail with exam opinions, engagements, subject appreciations, and competency evaluations from the teacher `LSL` payload.
 - **Teacher council targets** — lists the principal-professor classes and available council periods exposed by `ConseilDeClasse`, derived from the authenticated `niveauxListe.awp` route.
 - **Teacher council detail** — returns council student rows, mention options, class appreciation settings, and both principal-professor and teacher predefined appreciation templates through the authenticated `enseignants/{id}/{typeEntity}/{entityId}/periodes/{periodCode}/conseilDeClasse.awp`, `Prof Principal/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp`, and `Enseignant/{id}/{typeEntity}/{entityId}/appreciationsPredefinies.awp` routes.
+- **Write tools** — preview and confirm changes to messages, homework, grades, attendance, quizzes, forms, workspaces, and Cloud. [Execution is opt-in](#write-tools).
 - **Credential & session persistence** — saves auth material locally under `~/.ecoledirecte/` with strict file permissions (0600/0700). The credentials file path can be customized via `ECOLEDIRECTE_CREDENTIALS_FILE`.
 - **Structured logging** — all sensitive data (passwords, tokens, cookies) is automatically redacted from log output.
 
@@ -189,6 +190,9 @@ When no profile is specified, tools use the legacy default paths (`~/.ecoledirec
 | `get_teacher_lsl_student_detail` | Get a scoped teacher LSL / Parcoursup student detail (`classId`, `studentId`) |
 | `list_teacher_council_targets` | List principal-professor council classes and their available periods |
 | `get_teacher_council_detail` | Get council student rows, mention options, class appreciation settings, and predefined appreciation templates for a selected class and period |
+| `list_ecoledirecte_write_capabilities` | List supported write operations and actions without contacting EcoleDirecte |
+| `prepare_ecoledirecte_write` | Validate an operation and create a preview without contacting EcoleDirecte |
+| `execute_ecoledirecte_write` | Apply a confirmed write preview once, if writes are enabled |
 | `logout` | Clear the session (keeps saved credentials). Optional `profile`. |
 | `logout_full` | Clear both session and saved credentials. Optional `profile`. |
 
@@ -197,6 +201,32 @@ If multiple family accounts or students are available, pass `accountId` and/or `
 Student-scoped tools accept an optional `students` array of `{studentId, accountId?}` targets. When omitted, the tool queries all known students sequentially, switching account context and renewing the token between each call. All tool calls are serialized to prevent concurrent API requests from causing stale-token conflicts.
 
 Teacher tools use the `apip.ecoledirecte.com` host observed in live browser traffic, rather than the standard `api.ecoledirecte.com` used by family/student routes.
+
+## Write Tools
+
+**Writes are disabled by default.** To enable them, set `ECOLEDIRECTE_ENABLE_WRITES=1` in the MCP server's environment and restart the server. Enable writes only for trusted clients: the client is responsible for asking the user to approve each preview.
+
+1. Call `list_ecoledirecte_write_capabilities` to find the operation and its supported actions. The schema for `prepare_ecoledirecte_write` lists the required fields.
+2. Call `prepare_ecoledirecte_write` with an `operation` object containing `kind`, the active account's `accountId`, and the operation's other fields. Preparing a write makes no network requests and does not switch accounts.
+3. Review the account, target, and changes in the preview. After explicit approval, call `execute_ecoledirecte_write` with `{ "planId": "<preview ID>", "confirm": true }`. Only the latest preview is valid. It expires after five minutes and can be executed once, in the same server process and authenticated session.
+
+Write requests are not retried automatically. If a response is lost or execution returns `outcome_unknown`, check EcoleDirecte before preparing another write. Preflight checks do not prevent concurrent changes in the web interface.
+
+| Area | Supported operations |
+|------|----------------------|
+| Messaging | Send, draft, or schedule plain-text messages from a teacher or personnel account; mark messages as read or unread, archive, move, or delete them; create and rename folders; set a message signature. Use contact IDs and roles for recipients. |
+| Cahier de textes | Add or edit homework and lesson content, manage textbook links and attachments, and mark student homework as complete or incomplete. Use `get_teacher_cahier_de_textes` to find a teacher slot. Uploads take an absolute path on the MCP server to a non-empty regular file of at most 50 MiB. |
+| Gradebook | Create or rename numeric evaluations, enter grades, delete ungraded evaluations, and manage student appreciations and teacher templates. |
+| Attendance | Submit the current day's roll call for a secondary-school class or group. The preview must cover the full roster. |
+| QCM and EDForms | Create and manage quizzes, associations, tags, and form drafts; edit questions; publish, close, or schedule forms. |
+| Workspaces and Cloud | Manage topics and topic messages, create folders, rename items, and move items to or restore them from the trash. |
+
+### Creating evaluations and entering grades
+
+Use `get_teacher_gradebook_catalog` to find the class or group, period, subject and optional sub-subject, and `get_teacher_note_settings` to check the establishment's grading and publication rules.
+
+- **`create_gradebook_evaluation`** takes a `target` (`entityType`, `entityId`, `periodCode`, `subjectCode`, and optional `subSubjectCode`), plus `label`, `date` (`YYYY-MM-DD`), `maxGrade`, `coefficient`, and `publication`. Pass `homeworkTypeId` if the school requires an evaluation type. Use `{ "mode": "date", "date": "YYYY-MM-DD" }` when the establishment allows an explicit display date; otherwise use `{ "mode": "school_policy" }`, which may make the evaluation visible immediately.
+- **`save_gradebook_notes`** takes the same `target`, the current evaluation details from `get_teacher_gradebook_notes` (`evaluationId`, `evaluationLabel`, `maxGrade`, and `displayDate`), and a `grades` array. Set `displayDate` to `null` if it is unknown. Example grade entry: `{ "studentId": 456, "previousGrade": "12.5", "grade": "14.75" }`. Use `previousGrade: null` for a blank grade, not an absence or other special status. The server checks the previous values, preserves unselected cells, and re-reads the grade grid after submission. This operation does not erase grades or replace special statuses.
 
 ## Browser Session Export Format
 
@@ -328,6 +358,7 @@ src/
 ├── index.ts                          # stdio entrypoint
 ├── server/tools.ts                   # Auth MCP tool definitions (with profile support)
 ├── server/dataTools.ts               # Family, student, and teacher MCP tool definitions
+├── server/writeTools.ts              # Write capability, preview, and execution tools
 └── ecoledirecte/
     ├── logging.ts                    # Structured logging with redaction
     ├── api/
@@ -359,6 +390,8 @@ src/
     │   └── sessionImport.ts          # Browser-export file parser
     ├── data/
     │   └── service.ts                # Authenticated student, family, and teacher data access
+    ├── write/
+    │   └── service.ts                # Write previews, preflight checks, and execution
     └── http/
         └── client.ts                 # Cookie-aware HTTP client
 ```

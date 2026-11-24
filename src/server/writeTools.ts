@@ -5,8 +5,20 @@ import { WriteOutcomeUnknown, type EdWriteService } from "../ecoledirecte/write/
 import { serialize } from "./serialize.js";
 
 export function registerWriteTools(server: McpServer, writes: EdWriteService): void {
+  server.registerTool("list_ecoledirecte_write_capabilities", {
+    description: "List the supported operation kinds and action names without authenticating or contacting ÉcoleDirecte. Use prepare_ecoledirecte_write for the full input schema.",
+    inputSchema: {},
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  }, () => result(async () => writeOperationSchema.options.map(({ shape }) => {
+    const change = "change" in shape ? shape.change : undefined;
+    const delivery = "delivery" in shape ? shape.delivery.unwrap() : undefined;
+    const actions = change?.options.flatMap(({ shape }) => choiceValues(shape.action));
+    const modes = delivery?.options.flatMap(({ shape }) => choiceValues(shape.mode));
+    return { kind: shape.kind.value, ...(actions ? { actions } : {}), ...(modes ? { modes } : {}) };
+  })));
+
   server.registerTool("prepare_ecoledirecte_write", {
-    description: "Preview a message, cahier entry or attachment, a new gradebook evaluation, or numeric grades for an existing evaluation. Makes no network requests. Show the preview (including grade publication and old/new values where relevant) to the user and obtain explicit approval before executing. A newer preview replaces the previous one.",
+    description: "Preview a typed ÉcoleDirecte write (messaging, cahier, gradebook, attendance, quizzes, forms, workspaces or Cloud). Makes no network requests. Show all changes and their effects to the user and obtain explicit approval before executing. A newer preview replaces the previous one.",
     inputSchema: { operation: writeOperationSchema },
     annotations: { readOnlyHint: true, openWorldHint: false },
   }, ({ operation }) => serialize(() => result(() => writes.prepare(operation))));
@@ -16,6 +28,11 @@ export function registerWriteTools(server: McpServer, writes: EdWriteService): v
     inputSchema: { planId: z.string().uuid(), confirm: z.literal(true) },
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
   }, ({ planId, confirm }, { signal }) => serialize(() => result(() => writes.execute(planId, confirm, signal))));
+}
+
+function choiceValues(option: z.ZodTypeAny): string[] {
+  return option instanceof z.ZodLiteral && typeof option.value === "string" ? [option.value]
+    : option instanceof z.ZodEnum ? option.options as string[] : [];
 }
 
 async function result(action: () => Promise<unknown>) {
